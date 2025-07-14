@@ -1,0 +1,35 @@
+# Go build artifacts
+danapp
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Local environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+
+# macOS files
+.DS_Store
+
+# Log files
+*.log
+
+# Notes files (models) 
+CDR.php 
+CdrD.php 
+CdrG.php 
+CdrM.php 
+CdrR.php 
+CdrU.php
