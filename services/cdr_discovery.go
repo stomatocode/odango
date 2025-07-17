@@ -6,6 +6,7 @@
 //                                                          |___/
 //
 // Service to query API endpoints for CDRs based on flexible criteria
+//
 
 package services
 
@@ -20,6 +21,7 @@ import (
 	"o-dan-go/models"
 )
 
+// CDRDiscoveryService handles comprehensive CDR discovery across multiple endpoints
 type CDRDiscoveryService struct {
 	client      *http.Client
 	baseURL     string
@@ -45,22 +47,23 @@ type CDRDiscoveryResult struct {
 	StartTime       time.Time                       `json:"start_time"`
 	EndTime         time.Time                       `json:"end_time"`
 	TotalCDRs       int                             `json:"total_cdrs"`
-	UniqueGDRs      int                             `json:"unique_cdrs"`
+	UniqueCDRs      int                             `json:"unique_cdrs"` // Fixed typo from UniqueGDRs
 	EndpointResults []EndpointResult                `json:"endpoint_results"`
 	AllCDRs         []models.FlexibleCDR            `json:"all_cdrs"`
 	CDRsByEndpoint  map[string][]models.FlexibleCDR `json:"cdrs_by_endpoint"`
 	Errors          []string                        `json:"errors,omitempty"`
 }
 
-// EndpointResult - result from individual endpoint
+// EndpointResult - result from individual endpoint query (single definition with CDRs field)
 type EndpointResult struct {
-	EndpointName string        `json:"endpoint_name"`
-	URL          string        `json:"url"`
-	RecordCount  int           `json:"record_count"`
-	Success      bool          `json:"success"`
-	Error        string        `json:"error,omitempty"`
-	QueryTime    time.Duration `json:"query_time"`
-	HTTPStatus   int           `json:"http_status"`
+	EndpointName string               `json:"endpoint_name"`
+	URL          string               `json:"url"`
+	RecordCount  int                  `json:"record_count"`
+	Success      bool                 `json:"success"`
+	Error        string               `json:"error,omitempty"`
+	QueryTime    time.Duration        `json:"query_time"`
+	HTTPStatus   int                  `json:"http_status"`
+	CDRs         []models.FlexibleCDR `json:"cdrs,omitempty"`
 }
 
 // CDREndpointConfig - configuration for each CDR endpoint
@@ -175,7 +178,7 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 
 	// Deduplicate CDRs by ID
 	result.AllCDRs = cds.deduplicateCDRs(result.AllCDRs)
-	result.UniqueGDRs = len(result.AllCDRs)
+	result.UniqueCDRs = len(result.AllCDRs) // Fixed to use correct field name
 	result.TotalCDRs = cds.countTotalCDRs(result.CDRsByEndpoint)
 	result.EndTime = time.Now()
 
@@ -199,7 +202,7 @@ func (cds *CDRDiscoveryService) selectEndpointsToQuery(criteria CDRSearchCriteri
 		}
 	}
 
-	// Always include global CDRs (no required params)
+	// Always include global CDRs (no required params) if no other endpoints selected
 	if len(selected) == 0 {
 		for _, endpoint := range endpoints {
 			if endpoint.Name == "global_cdrs" {
@@ -236,9 +239,10 @@ func (cds *CDRDiscoveryService) hasRequiredParams(endpoint CDREndpointConfig, cr
 func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, criteria CDRSearchCriteria) EndpointResult {
 	queryStart := time.Now()
 
+	// Initialize result with proper CDRs field
 	result := EndpointResult{
 		EndpointName: endpointConfig.Name,
-		CDRs:         []models.FlexibleCDR{},
+		CDRs:         []models.FlexibleCDR{}, // Properly initialize CDRs slice
 	}
 
 	// Build URL with parameters
@@ -435,16 +439,4 @@ func (cds *CDRDiscoveryService) countTotalCDRs(cdrsByEndpoint map[string][]model
 // generateSessionID generates a unique session ID
 func (cds *CDRDiscoveryService) generateSessionID() string {
 	return fmt.Sprintf("cdr_session_%d", time.Now().UnixNano())
-}
-
-// Additional helper struct for endpoint result with CDRs
-type EndpointResult struct {
-	EndpointName string               `json:"endpoint_name"`
-	URL          string               `json:"url"`
-	RecordCount  int                  `json:"record_count"`
-	Success      bool                 `json:"success"`
-	Error        string               `json:"error,omitempty"`
-	QueryTime    time.Duration        `json:"query_time"`
-	HTTPStatus   int                  `json:"http_status"`
-	CDRs         []models.FlexibleCDR `json:"cdrs,omitempty"`
 }
