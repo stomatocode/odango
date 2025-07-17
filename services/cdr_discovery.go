@@ -1,0 +1,450 @@
+//   ____ ____  ____    ____  _
+//  / ___|  _ \|  _ \  |  _ \(_)___  ___ _____   _____ _ __ _   _
+// | |   | | | | |_) | | | | | / __|/ __/ _ \ \ / / _ \ '__| | | |
+// | |___| |_| |  _ <  | |_| | \__ \ (_| (_) \ V /  __/ |  | |_| |
+//  \____|____/|_| \_\ |____/|_|___/\___\___/ \_/ \___|_|   \__, |
+//                                                          |___/
+//
+// Service to query API endpoints for CDRs based on flexible criteria
+
+package services
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"o-dan-go/models"
+)
+
+type CDRDiscoveryService struct {
+	client      *http.Client
+	baseURL     string
+	accessToken string
+}
+
+// CDRSearchCriteria - flexible search criteria, all fields optional
+type CDRSearchCriteria struct {
+	Domain    string     `json:"domain,omitempty"`
+	User      string     `json:"user,omitempty"`
+	CallID    string     `json:"call_id,omitempty"`
+	Number    string     `json:"number,omitempty"`
+	StartDate *time.Time `json:"start_date,omitempty"`
+	EndDate   *time.Time `json:"end_date,omitempty"`
+	Start     int        `json:"start,omitempty"` // Pagination offset
+	Limit     int        `json:"limit,omitempty"` // Max records per endpoint
+}
+
+// CDRDiscoveryResult - comprehensive result from all endpoints
+type CDRDiscoveryResult struct {
+	SessionID       string                          `json:"session_id"`
+	SearchCriteria  CDRSearchCriteria               `json:"search_criteria"`
+	StartTime       time.Time                       `json:"start_time"`
+	EndTime         time.Time                       `json:"end_time"`
+	TotalCDRs       int                             `json:"total_cdrs"`
+	UniqueGDRs      int                             `json:"unique_cdrs"`
+	EndpointResults []EndpointResult                `json:"endpoint_results"`
+	AllCDRs         []models.FlexibleCDR            `json:"all_cdrs"`
+	CDRsByEndpoint  map[string][]models.FlexibleCDR `json:"cdrs_by_endpoint"`
+	Errors          []string                        `json:"errors,omitempty"`
+}
+
+// EndpointResult - result from individual endpoint
+type EndpointResult struct {
+	EndpointName string        `json:"endpoint_name"`
+	URL          string        `json:"url"`
+	RecordCount  int           `json:"record_count"`
+	Success      bool          `json:"success"`
+	Error        string        `json:"error,omitempty"`
+	QueryTime    time.Duration `json:"query_time"`
+	HTTPStatus   int           `json:"http_status"`
+}
+
+// CDREndpointConfig - configuration for each CDR endpoint
+type CDREndpointConfig struct {
+	Name           string   `json:"name"`
+	URLTemplate    string   `json:"url_template"`
+	RequiredParams []string `json:"required_params"`
+	OptionalParams []string `json:"optional_params"`
+	Description    string   `json:"description"`
+}
+
+// NewCDRDiscoveryService creates a new CDR discovery service
+func NewCDRDiscoveryService(baseURL, accessToken string) *CDRDiscoveryService {
+	return &CDRDiscoveryService{
+		client:      &http.Client{Timeout: 30 * time.Second},
+		baseURL:     strings.TrimRight(baseURL, "/"),
+		accessToken: accessToken,
+	}
+}
+
+// GetSupportedEndpoints returns all available CDR endpoints
+func (cds *CDRDiscoveryService) GetSupportedEndpoints() []CDREndpointConfig {
+	return []CDREndpointConfig{
+		{
+			Name:           "global_cdrs",
+			URLTemplate:    "/ns-api/v2/cdrs",
+			RequiredParams: []string{},
+			OptionalParams: []string{"start", "limit"},
+			Description:    "All CDRs system-wide",
+		},
+		{
+			Name:           "domain_cdrs",
+			URLTemplate:    "/ns-api/v2/domains/{domain}/cdrs",
+			RequiredParams: []string{"domain"},
+			OptionalParams: []string{"start", "limit"},
+			Description:    "CDRs for specific domain",
+		},
+		{
+			Name:           "user_cdrs",
+			URLTemplate:    "/ns-api/v2/domains/{domain}/users/{user}/cdrs",
+			RequiredParams: []string{"domain", "user"},
+			OptionalParams: []string{"start", "limit"},
+			Description:    "CDRs for specific user",
+		},
+		{
+			Name:           "site_cdrs",
+			URLTemplate:    "/ns-api/v2/domains/{domain}/sites/{site}/cdrs",
+			RequiredParams: []string{"domain", "site"},
+			OptionalParams: []string{"start", "limit"},
+			Description:    "CDRs for specific site",
+		},
+		{
+			Name:           "global_count",
+			URLTemplate:    "/ns-api/v2/cdrs/count",
+			RequiredParams: []string{},
+			OptionalParams: []string{},
+			Description:    "Count and sum of all CDRs",
+		},
+		{
+			Name:           "domain_count",
+			URLTemplate:    "/ns-api/v2/domains/{domain}/cdrs/count",
+			RequiredParams: []string{"domain"},
+			OptionalParams: []string{},
+			Description:    "Count and sum for domain CDRs",
+		},
+		{
+			Name:           "user_count",
+			URLTemplate:    "/ns-api/v2/domains/{domain}/users/{user}/cdrs/count",
+			RequiredParams: []string{"domain", "user"},
+			OptionalParams: []string{},
+			Description:    "Count and sum for user CDRs",
+		},
+	}
+}
+
+// GetComprehensiveCDRs - main function to query all relevant endpoints
+func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria) (*CDRDiscoveryResult, error) {
+	startTime := time.Now()
+	sessionID := cds.generateSessionID()
+
+	// Set default pagination if not provided
+	if criteria.Limit == 0 {
+		criteria.Limit = 100 // Default limit per endpoint
+	}
+
+	result := &CDRDiscoveryResult{
+		SessionID:       sessionID,
+		SearchCriteria:  criteria,
+		StartTime:       startTime,
+		EndpointResults: []EndpointResult{},
+		CDRsByEndpoint:  make(map[string][]models.FlexibleCDR),
+		Errors:          []string{},
+	}
+
+	// Determine which endpoints to query based on available criteria
+	endpointsToQuery := cds.selectEndpointsToQuery(criteria)
+
+	// Query each relevant endpoint
+	for _, endpointConfig := range endpointsToQuery {
+		endpointResult := cds.queryEndpoint(endpointConfig, criteria)
+		result.EndpointResults = append(result.EndpointResults, endpointResult)
+
+		if endpointResult.Success && len(endpointResult.CDRs) > 0 {
+			result.CDRsByEndpoint[endpointConfig.Name] = endpointResult.CDRs
+			result.AllCDRs = append(result.AllCDRs, endpointResult.CDRs...)
+		}
+
+		if !endpointResult.Success {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", endpointConfig.Name, endpointResult.Error))
+		}
+	}
+
+	// Deduplicate CDRs by ID
+	result.AllCDRs = cds.deduplicateCDRs(result.AllCDRs)
+	result.UniqueGDRs = len(result.AllCDRs)
+	result.TotalCDRs = cds.countTotalCDRs(result.CDRsByEndpoint)
+	result.EndTime = time.Now()
+
+	return result, nil
+}
+
+// selectEndpointsToQuery determines which endpoints to query based on criteria
+func (cds *CDRDiscoveryService) selectEndpointsToQuery(criteria CDRSearchCriteria) []CDREndpointConfig {
+	endpoints := cds.GetSupportedEndpoints()
+	var selected []CDREndpointConfig
+
+	for _, endpoint := range endpoints {
+		// Skip count endpoints for now (focus on data endpoints)
+		if strings.Contains(endpoint.Name, "count") {
+			continue
+		}
+
+		// Check if we have required parameters for this endpoint
+		if cds.hasRequiredParams(endpoint, criteria) {
+			selected = append(selected, endpoint)
+		}
+	}
+
+	// Always include global CDRs (no required params)
+	if len(selected) == 0 {
+		for _, endpoint := range endpoints {
+			if endpoint.Name == "global_cdrs" {
+				selected = append(selected, endpoint)
+				break
+			}
+		}
+	}
+
+	return selected
+}
+
+// hasRequiredParams checks if criteria contains required parameters for endpoint
+func (cds *CDRDiscoveryService) hasRequiredParams(endpoint CDREndpointConfig, criteria CDRSearchCriteria) bool {
+	for _, required := range endpoint.RequiredParams {
+		switch required {
+		case "domain":
+			if criteria.Domain == "" {
+				return false
+			}
+		case "user":
+			if criteria.User == "" {
+				return false
+			}
+		case "site":
+			// Site not in criteria struct yet, so skip site endpoints for now
+			return false
+		}
+	}
+	return true
+}
+
+// queryEndpoint queries a single endpoint and returns results
+func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, criteria CDRSearchCriteria) EndpointResult {
+	queryStart := time.Now()
+
+	result := EndpointResult{
+		EndpointName: endpointConfig.Name,
+		CDRs:         []models.FlexibleCDR{},
+	}
+
+	// Build URL with parameters
+	url, err := cds.buildEndpointURL(endpointConfig, criteria)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("URL build error: %v", err)
+		result.QueryTime = time.Since(queryStart)
+		return result
+	}
+
+	result.URL = url
+
+	// Make HTTP request
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("Request creation error: %v", err)
+		result.QueryTime = time.Since(queryStart)
+		return result
+	}
+
+	// Add authorization header
+	req.Header.Set("Authorization", "Bearer "+cds.accessToken)
+	req.Header.Set("Accept", "application/json")
+
+	// Execute request
+	resp, err := cds.client.Do(req)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("HTTP request error: %v", err)
+		result.QueryTime = time.Since(queryStart)
+		return result
+	}
+	defer resp.Body.Close()
+
+	result.HTTPStatus = resp.StatusCode
+	result.QueryTime = time.Since(queryStart)
+
+	// Handle non-200 responses
+	if resp.StatusCode != http.StatusOK {
+		result.Success = false
+		result.Error = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, resp.Status)
+		return result
+	}
+
+	// Parse JSON response
+	var apiResponse interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&apiResponse); err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("JSON decode error: %v", err)
+		return result
+	}
+
+	// Convert to CDR models
+	cdrs, err := cds.convertAPIResponseToCDRs(apiResponse)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("CDR conversion error: %v", err)
+		return result
+	}
+
+	result.CDRs = cdrs
+	result.RecordCount = len(cdrs)
+	result.Success = true
+
+	return result
+}
+
+// buildEndpointURL builds the complete URL for an endpoint with parameters
+func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfig, criteria CDRSearchCriteria) (string, error) {
+	// Start with URL template
+	urlPath := endpointConfig.URLTemplate
+
+	// Replace path parameters
+	urlPath = strings.ReplaceAll(urlPath, "{domain}", criteria.Domain)
+	urlPath = strings.ReplaceAll(urlPath, "{user}", criteria.User)
+	// Add site parameter handling when needed
+
+	// Build query parameters
+	params := url.Values{}
+
+	// Add pagination parameters
+	if criteria.Start > 0 {
+		params.Add("start", fmt.Sprintf("%d", criteria.Start))
+	}
+	if criteria.Limit > 0 {
+		params.Add("limit", fmt.Sprintf("%d", criteria.Limit))
+	}
+
+	// Add date parameters if provided
+	if criteria.StartDate != nil {
+		params.Add("start_date", criteria.StartDate.Format("2006-01-02"))
+	}
+	if criteria.EndDate != nil {
+		params.Add("end_date", criteria.EndDate.Format("2006-01-02"))
+	}
+
+	// Add call ID if provided
+	if criteria.CallID != "" {
+		params.Add("call_id", criteria.CallID)
+	}
+
+	// Add number if provided
+	if criteria.Number != "" {
+		params.Add("number", criteria.Number)
+	}
+
+	// Build final URL
+	fullURL := cds.baseURL + urlPath
+	if len(params) > 0 {
+		fullURL += "?" + params.Encode()
+	}
+
+	return fullURL, nil
+}
+
+// convertAPIResponseToCDRs converts API response to FlexibleCDR models
+func (cds *CDRDiscoveryService) convertAPIResponseToCDRs(apiResponse interface{}) ([]models.FlexibleCDR, error) {
+	var cdrs []models.FlexibleCDR
+
+	// Handle different response formats
+	switch response := apiResponse.(type) {
+	case []interface{}:
+		// Array of CDR objects
+		for _, item := range response {
+			if cdrData, ok := item.(map[string]interface{}); ok {
+				cdr, err := cds.convertMapToFlexibleCDR(cdrData)
+				if err != nil {
+					continue // Skip invalid CDRs, don't fail entire request
+				}
+				cdrs = append(cdrs, cdr)
+			}
+		}
+	case map[string]interface{}:
+		// Single CDR object or wrapped response
+		if data, exists := response["data"]; exists {
+			// Response is wrapped, recurse on data
+			return cds.convertAPIResponseToCDRs(data)
+		} else {
+			// Single CDR object
+			cdr, err := cds.convertMapToFlexibleCDR(response)
+			if err != nil {
+				return nil, err
+			}
+			cdrs = append(cdrs, cdr)
+		}
+	default:
+		return nil, fmt.Errorf("unexpected API response format: %T", response)
+	}
+
+	return cdrs, nil
+}
+
+// convertMapToFlexibleCDR converts a map to FlexibleCDR
+func (cds *CDRDiscoveryService) convertMapToFlexibleCDR(data map[string]interface{}) (models.FlexibleCDR, error) {
+	var cdr models.FlexibleCDR
+
+	// Convert map to JSON and then unmarshal into FlexibleCDR
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return cdr, err
+	}
+
+	err = json.Unmarshal(jsonData, &cdr)
+	return cdr, err
+}
+
+// deduplicateCDRs removes duplicate CDRs based on ID
+func (cds *CDRDiscoveryService) deduplicateCDRs(cdrs []models.FlexibleCDR) []models.FlexibleCDR {
+	seen := make(map[string]bool)
+	var unique []models.FlexibleCDR
+
+	for _, cdr := range cdrs {
+		id := cdr.GetID()
+		if id != "" && !seen[id] {
+			seen[id] = true
+			unique = append(unique, cdr)
+		}
+	}
+
+	return unique
+}
+
+// countTotalCDRs counts total CDRs across all endpoints
+func (cds *CDRDiscoveryService) countTotalCDRs(cdrsByEndpoint map[string][]models.FlexibleCDR) int {
+	total := 0
+	for _, cdrs := range cdrsByEndpoint {
+		total += len(cdrs)
+	}
+	return total
+}
+
+// generateSessionID generates a unique session ID
+func (cds *CDRDiscoveryService) generateSessionID() string {
+	return fmt.Sprintf("cdr_session_%d", time.Now().UnixNano())
+}
+
+// Additional helper struct for endpoint result with CDRs
+type EndpointResult struct {
+	EndpointName string               `json:"endpoint_name"`
+	URL          string               `json:"url"`
+	RecordCount  int                  `json:"record_count"`
+	Success      bool                 `json:"success"`
+	Error        string               `json:"error,omitempty"`
+	QueryTime    time.Duration        `json:"query_time"`
+	HTTPStatus   int                  `json:"http_status"`
+	CDRs         []models.FlexibleCDR `json:"cdrs,omitempty"`
+}
