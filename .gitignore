@@ -26,10 +26,12 @@ danapp
 # Log files
 *.log
 
-# Notes files (models) 
+# Notes files (models) and env stuff
 CDR.php 
 CdrD.php 
 CdrG.php 
 CdrM.php 
 CdrR.php 
 CdrU.php
+.env.production
+*.env
