@@ -8,6 +8,8 @@
 // Service to query API endpoints for CDRs based on flexible criteria
 //
 
+// Updated to include raw=yes parameter for complete CDR data retrieval
+
 package services
 
 import (
@@ -38,6 +40,7 @@ type CDRSearchCriteria struct {
 	EndDate   *time.Time `json:"end_date,omitempty"`
 	Start     int        `json:"start,omitempty"` // Pagination offset
 	Limit     int        `json:"limit,omitempty"` // Max records per endpoint
+	Raw       bool       `json:"raw,omitempty"`   // Force raw data (always true for bulk dumps)
 }
 
 // CDRDiscoveryResult - comprehensive result from all endpoints
@@ -47,14 +50,14 @@ type CDRDiscoveryResult struct {
 	StartTime       time.Time                       `json:"start_time"`
 	EndTime         time.Time                       `json:"end_time"`
 	TotalCDRs       int                             `json:"total_cdrs"`
-	UniqueCDRs      int                             `json:"unique_cdrs"` // Fixed typo from UniqueGDRs
+	UniqueCDRs      int                             `json:"unique_cdrs"`
 	EndpointResults []EndpointResult                `json:"endpoint_results"`
 	AllCDRs         []models.FlexibleCDR            `json:"all_cdrs"`
 	CDRsByEndpoint  map[string][]models.FlexibleCDR `json:"cdrs_by_endpoint"`
 	Errors          []string                        `json:"errors,omitempty"`
 }
 
-// EndpointResult - result from individual endpoint query (single definition with CDRs field)
+// EndpointResult - result from individual endpoint query
 type EndpointResult struct {
 	EndpointName string               `json:"endpoint_name"`
 	URL          string               `json:"url"`
@@ -64,6 +67,7 @@ type EndpointResult struct {
 	QueryTime    time.Duration        `json:"query_time"`
 	HTTPStatus   int                  `json:"http_status"`
 	CDRs         []models.FlexibleCDR `json:"cdrs,omitempty"`
+	RawDataUsed  bool                 `json:"raw_data_used"` // Indicates if raw=yes was used
 }
 
 // CDREndpointConfig - configuration for each CDR endpoint
@@ -72,6 +76,7 @@ type CDREndpointConfig struct {
 	URLTemplate    string   `json:"url_template"`
 	RequiredParams []string `json:"required_params"`
 	OptionalParams []string `json:"optional_params"`
+	SupportsRaw    bool     `json:"supports_raw"` // NEW: Indicates if endpoint supports raw=yes
 	Description    string   `json:"description"`
 }
 
@@ -84,42 +89,47 @@ func NewCDRDiscoveryService(baseURL, accessToken string) *CDRDiscoveryService {
 	}
 }
 
-// GetSupportedEndpoints returns all available CDR endpoints
+// GetSupportedEndpoints returns all available CDR endpoints with raw support info
 func (cds *CDRDiscoveryService) GetSupportedEndpoints() []CDREndpointConfig {
 	return []CDREndpointConfig{
 		{
 			Name:           "global_cdrs",
 			URLTemplate:    "/ns-api/v2/cdrs",
 			RequiredParams: []string{},
-			OptionalParams: []string{"start", "limit"},
-			Description:    "All CDRs system-wide",
+			OptionalParams: []string{"start", "limit", "raw"},
+			SupportsRaw:    true, // Global CDR endpoint supports raw=yes
+			Description:    "All CDRs system-wide (supports raw=yes)",
 		},
 		{
 			Name:           "domain_cdrs",
 			URLTemplate:    "/ns-api/v2/domains/{domain}/cdrs",
 			RequiredParams: []string{"domain"},
-			OptionalParams: []string{"start", "limit"},
-			Description:    "CDRs for specific domain",
+			OptionalParams: []string{"start", "limit", "raw"},
+			SupportsRaw:    true, // Domain CDR endpoint supports raw=yes
+			Description:    "CDRs for specific domain (supports raw=yes)",
 		},
 		{
 			Name:           "user_cdrs",
 			URLTemplate:    "/ns-api/v2/domains/{domain}/users/{user}/cdrs",
 			RequiredParams: []string{"domain", "user"},
-			OptionalParams: []string{"start", "limit"},
-			Description:    "CDRs for specific user",
+			OptionalParams: []string{"start", "limit", "raw"},
+			SupportsRaw:    true, // User CDR endpoint supports raw=yes
+			Description:    "CDRs for specific user (supports raw=yes)",
 		},
 		{
 			Name:           "site_cdrs",
 			URLTemplate:    "/ns-api/v2/domains/{domain}/sites/{site}/cdrs",
 			RequiredParams: []string{"domain", "site"},
-			OptionalParams: []string{"start", "limit"},
-			Description:    "CDRs for specific site",
+			OptionalParams: []string{"start", "limit", "raw"},
+			SupportsRaw:    true, // Site CDR endpoint supports raw=yes
+			Description:    "CDRs for specific site (supports raw=yes)",
 		},
 		{
 			Name:           "global_count",
 			URLTemplate:    "/ns-api/v2/cdrs/count",
 			RequiredParams: []string{},
 			OptionalParams: []string{},
+			SupportsRaw:    false, // Count endpoints typically don't support raw
 			Description:    "Count and sum of all CDRs",
 		},
 		{
@@ -127,6 +137,7 @@ func (cds *CDRDiscoveryService) GetSupportedEndpoints() []CDREndpointConfig {
 			URLTemplate:    "/ns-api/v2/domains/{domain}/cdrs/count",
 			RequiredParams: []string{"domain"},
 			OptionalParams: []string{},
+			SupportsRaw:    false, // Count endpoints typically don't support raw
 			Description:    "Count and sum for domain CDRs",
 		},
 		{
@@ -134,12 +145,13 @@ func (cds *CDRDiscoveryService) GetSupportedEndpoints() []CDREndpointConfig {
 			URLTemplate:    "/ns-api/v2/domains/{domain}/users/{user}/cdrs/count",
 			RequiredParams: []string{"domain", "user"},
 			OptionalParams: []string{},
+			SupportsRaw:    false, // Count endpoints typically don't support raw
 			Description:    "Count and sum for user CDRs",
 		},
 	}
 }
 
-// GetComprehensiveCDRs - main function to query all relevant endpoints
+// GetComprehensiveCDRs - main function to query all relevant endpoints with raw data
 func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria) (*CDRDiscoveryResult, error) {
 	startTime := time.Now()
 	sessionID := cds.generateSessionID()
@@ -148,6 +160,9 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 	if criteria.Limit == 0 {
 		criteria.Limit = 100 // Default limit per endpoint
 	}
+
+	// IMPORTANT: Always force raw=yes for bulk CDR dumps to get complete data
+	criteria.Raw = true
 
 	result := &CDRDiscoveryResult{
 		SessionID:       sessionID,
@@ -178,7 +193,7 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 
 	// Deduplicate CDRs by ID
 	result.AllCDRs = cds.deduplicateCDRs(result.AllCDRs)
-	result.UniqueCDRs = len(result.AllCDRs) // Fixed to use correct field name
+	result.UniqueCDRs = len(result.AllCDRs)
 	result.TotalCDRs = cds.countTotalCDRs(result.CDRsByEndpoint)
 	result.EndTime = time.Now()
 
@@ -191,7 +206,7 @@ func (cds *CDRDiscoveryService) selectEndpointsToQuery(criteria CDRSearchCriteri
 	var selected []CDREndpointConfig
 
 	for _, endpoint := range endpoints {
-		// Skip count endpoints for now (focus on data endpoints)
+		// Skip count endpoints for CDR data collection (focus on data endpoints)
 		if strings.Contains(endpoint.Name, "count") {
 			continue
 		}
@@ -242,10 +257,11 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 	// Initialize result with proper CDRs field
 	result := EndpointResult{
 		EndpointName: endpointConfig.Name,
-		CDRs:         []models.FlexibleCDR{}, // Properly initialize CDRs slice
+		CDRs:         []models.FlexibleCDR{},
+		RawDataUsed:  false, // Will be set to true if raw=yes is used
 	}
 
-	// Build URL with parameters
+	// Build URL with parameters (including raw=yes if supported)
 	url, err := cds.buildEndpointURL(endpointConfig, criteria)
 	if err != nil {
 		result.Success = false
@@ -255,6 +271,7 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 	}
 
 	result.URL = url
+	result.RawDataUsed = endpointConfig.SupportsRaw && criteria.Raw
 
 	// Make HTTP request
 	req, err := http.NewRequest("GET", url, nil)
@@ -312,7 +329,7 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 	return result
 }
 
-// buildEndpointURL builds the complete URL for an endpoint with parameters
+// buildEndpointURL builds the complete URL for an endpoint with parameters (including raw=yes)
 func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfig, criteria CDRSearchCriteria) (string, error) {
 	// Start with URL template
 	urlPath := endpointConfig.URLTemplate
@@ -331,6 +348,11 @@ func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfi
 	}
 	if criteria.Limit > 0 {
 		params.Add("limit", fmt.Sprintf("%d", criteria.Limit))
+	}
+
+	// CRITICAL: Add raw=yes parameter if endpoint supports it and criteria requests it
+	if endpointConfig.SupportsRaw && criteria.Raw {
+		params.Add("raw", "yes")
 	}
 
 	// Add date parameters if provided
@@ -439,4 +461,13 @@ func (cds *CDRDiscoveryService) countTotalCDRs(cdrsByEndpoint map[string][]model
 // generateSessionID generates a unique session ID
 func (cds *CDRDiscoveryService) generateSessionID() string {
 	return fmt.Sprintf("cdr_session_%d", time.Now().UnixNano())
+}
+
+// GetRawDataSummary returns a summary of which endpoints used raw data
+func (cds *CDRDiscoveryService) GetRawDataSummary(result *CDRDiscoveryResult) map[string]bool {
+	summary := make(map[string]bool)
+	for _, endpointResult := range result.EndpointResults {
+		summary[endpointResult.EndpointName] = endpointResult.RawDataUsed
+	}
+	return summary
 }
