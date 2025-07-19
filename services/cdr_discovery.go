@@ -1,13 +1,4 @@
-//   ____ ____  ____    ____  _
-//  / ___|  _ \|  _ \  |  _ \(_)___  ___ _____   _____ _ __ _   _
-// | |   | | | | |_) | | | | | / __|/ __/ _ \ \ / / _ \ '__| | | |
-// | |___| |_| |  _ <  | |_| | \__ \ (_| (_) \ V /  __/ |  | |_| |
-//  \____|____/|_| \_\ |____/|_|___/\___\___/ \_/ \___|_|   \__, |
-//                                                          |___/
-//
-// Service to query API endpoints for CDRs based on flexible criteria
-//
-
+// services/cdr_discovery.go
 // Updated to include raw=yes parameter for complete CDR data retrieval
 
 package services
@@ -34,6 +25,7 @@ type CDRDiscoveryService struct {
 type CDRSearchCriteria struct {
 	Domain    string     `json:"domain,omitempty"`
 	User      string     `json:"user,omitempty"`
+	Site      string     `json:"site,omitempty"` // Site/location filter
 	CallID    string     `json:"call_id,omitempty"`
 	Number    string     `json:"number,omitempty"`
 	StartDate *time.Time `json:"start_date,omitempty"`
@@ -243,8 +235,9 @@ func (cds *CDRDiscoveryService) hasRequiredParams(endpoint CDREndpointConfig, cr
 				return false
 			}
 		case "site":
-			// Site not in criteria struct yet, so skip site endpoints for now
-			return false
+			if criteria.Site == "" {
+				return false
+			}
 		}
 	}
 	return true
@@ -337,7 +330,7 @@ func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfi
 	// Replace path parameters
 	urlPath = strings.ReplaceAll(urlPath, "{domain}", criteria.Domain)
 	urlPath = strings.ReplaceAll(urlPath, "{user}", criteria.User)
-	// Add site parameter handling when needed
+	urlPath = strings.ReplaceAll(urlPath, "{site}", criteria.Site)
 
 	// Build query parameters
 	params := url.Values{}
