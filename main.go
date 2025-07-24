@@ -52,6 +52,7 @@ import (
 	"time"
 
 	"o-dan-go/config"
+	"o-dan-go/handlers" // handlers for web interface
 	"o-dan-go/services"
 
 	"github.com/gin-gonic/gin"
@@ -72,10 +73,22 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Initialize CDR Discovery Service
+	cdrService := services.NewCDRDiscoveryService(
+		cfg.NetsapiensBaseURL,
+		cfg.NetsapiensToken,
+	)
+
 	// Create a Gin router with default middleware (logger and recovery)
 	r := gin.Default()
 
-	// Define a simple route
+	// Load HTML templates for web interface
+	r.LoadHTMLGlob("templates/*")
+
+	// Serve static files (CSS, JS, images)
+	r.Static("/static", "./static")
+
+	// API Routes (existing functionality)
 	r.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Welcome to O Dan Go!",
@@ -84,11 +97,27 @@ func main() {
 		})
 	})
 
+	// Web Interface Routes (new functionality)
+	r.GET("/web", handlers.ShowWelcomePage)
+	r.GET("/web/search", handlers.ShowSearchForm)
+	r.POST("/web/search", handlers.ProcessSearchForm(cdrService))
+	r.GET("/web/results/:session_id", handlers.ShowResults)
+
+	// API routes group for future expansion
+	api := r.Group("/api/v1")
+	{
+		api.GET("/health", handlers.HealthCheck)
+		// Future API endpoints can go here
+	}
+
 	// Start server on configured port
 	fmt.Printf("Starting O Dan Go server on port %s in %s mode\n", cfg.AppPort, cfg.AppEnv)
+	fmt.Printf("🌐 Web Interface: http://localhost:%s/web\n", cfg.AppPort)
+	fmt.Printf("🔗 API Endpoint: http://localhost:%s/\n", cfg.AppPort)
 	r.Run(":" + cfg.AppPort)
 }
 
+// Keep your existing testCDREndpoints function unchanged
 func testCDREndpoints(cfg *config.Config) {
 	fmt.Println("Testing CDR Discovery Service...")
 	fmt.Printf("🔗 Base URL: %s\n", cfg.NetsapiensBaseURL)
@@ -141,7 +170,7 @@ func testCDREndpoints(cfg *config.Config) {
 	fmt.Printf("   - Endpoints queried: %d\n", len(result.EndpointResults))
 
 	// Show detailed endpoint results
-	fmt.Println("\n Endpoint Results:")
+	fmt.Println("\n📡 Endpoint Results:")
 	for _, endpointResult := range result.EndpointResults {
 		status := "❌ FAILED"
 		if endpointResult.Success {
@@ -206,7 +235,7 @@ func testCDREndpoints(cfg *config.Config) {
 	fmt.Println("\n🎉 CDR Discovery Service test completed!")
 }
 
-// Helper functions
+// Keep your existing helper functions unchanged
 func min(a, b int) int {
 	if a < b {
 		return a
