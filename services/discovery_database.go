@@ -292,7 +292,6 @@ func (dds *DiscoveryDatabaseService) storeEndpointResult(tx *sql.Tx, sessionID s
 		result.QueryTime.Milliseconds(),
 		result.HTTPStatus,
 		result.RawDataUsed,
-		result.ParameterCount,
 		result.DiscoveredData,
 	)
 

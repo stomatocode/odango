@@ -51,15 +51,16 @@ type CDRDiscoveryResult struct {
 
 // EndpointResult - result from individual endpoint query
 type EndpointResult struct {
-	EndpointName string               `json:"endpoint_name"`
-	URL          string               `json:"url"`
-	RecordCount  int                  `json:"record_count"`
-	Success      bool                 `json:"success"`
-	Error        string               `json:"error,omitempty"`
-	QueryTime    time.Duration        `json:"query_time"`
-	HTTPStatus   int                  `json:"http_status"`
-	CDRs         []models.FlexibleCDR `json:"cdrs,omitempty"`
-	RawDataUsed  bool                 `json:"raw_data_used"` // Indicates if raw=yes was used
+	EndpointName   string               `json:"endpoint_name"`
+	URL            string               `json:"url"`
+	RecordCount    int                  `json:"record_count"`
+	Success        bool                 `json:"success"`
+	Error          string               `json:"error,omitempty"`
+	QueryTime      time.Duration        `json:"query_time"`
+	HTTPStatus     int                  `json:"http_status"`
+	CDRs           []models.FlexibleCDR `json:"cdrs,omitempty"`
+	RawDataUsed    bool                 `json:"raw_data_used"`   // Indicates if raw=yes was used
+	DiscoveredData bool                 `json:"discovered_data"` //
 }
 
 // CDREndpointConfig - configuration for each CDR endpoint
@@ -249,9 +250,10 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 
 	// Initialize result with proper CDRs field
 	result := EndpointResult{
-		EndpointName: endpointConfig.Name,
-		CDRs:         []models.FlexibleCDR{},
-		RawDataUsed:  false, // Will be set to true if raw=yes is used
+		EndpointName:   endpointConfig.Name,
+		CDRs:           []models.FlexibleCDR{},
+		RawDataUsed:    false, // Will be set to true if raw=yes is used
+		DiscoveredData: false, //
 	}
 
 	// Build URL with parameters (including raw=yes if supported)
