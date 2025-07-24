@@ -1,5 +1,5 @@
 // services/database.go
-// Simple database layer to store reports for later reference
+// Simplified database service focused on MVP: store CDR data and generate simple reports
 
 package services
 
