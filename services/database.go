@@ -1,7 +1,11 @@
+// services/database.go
+// Simple database layer to store reports for later reference
+
 package services
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -41,16 +45,16 @@ func (ds *DatabaseService) Close() error {
 	return ds.db.Close()
 }
 
-// createTables creates the necessary tables for storing CDR reports
+// createTables creates the simplified MVP-focused tables
 func (ds *DatabaseService) createTables() error {
-	// Table for storing CDR summaries
+	// CDR Summaries - core processed CDR data
 	createCDRSummaryTable := `
 	CREATE TABLE IF NOT EXISTS cdr_summaries (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		cdr_id TEXT NOT NULL UNIQUE,
 		domain TEXT,
 		call_direction INTEGER,
-		call_start_time TEXT,
+		call_start_time DATETIME,
 		call_duration_seconds INTEGER,
 		orig_user TEXT,
 		term_user TEXT,
@@ -63,30 +67,37 @@ func (ds *DatabaseService) createTables() error {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Table for storing raw CDR data (all fields)
-	createRawCDRTable := `
-	CREATE TABLE IF NOT EXISTS raw_cdrs (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		cdr_id TEXT NOT NULL UNIQUE,
-		raw_json TEXT NOT NULL,
-		field_count INTEGER,
+	// Search Sessions - simplified session tracking for user workflow
+	createSearchSessionsTable := `
+	CREATE TABLE IF NOT EXISTS search_sessions (
+		session_id TEXT PRIMARY KEY,
+		search_criteria TEXT NOT NULL,  -- JSON of search parameters
+		total_cdrs INTEGER DEFAULT 0,
+		start_time DATETIME NOT NULL,
+		end_time DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Table for storing generated reports
+	// Generated Reports - stores user-generated reports
 	createReportsTable := `
 	CREATE TABLE IF NOT EXISTS reports (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		session_id TEXT,
 		report_name TEXT NOT NULL,
-		report_type TEXT NOT NULL,
-		parameters TEXT,
-		result_data TEXT NOT NULL,
-		record_count INTEGER,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		report_type TEXT NOT NULL,      -- summary, detailed, custom
+		report_data TEXT NOT NULL,      -- CSV, JSON, or HTML content
+		record_count INTEGER DEFAULT 0,
+		file_size_bytes INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (session_id) REFERENCES search_sessions(session_id)
 	);`
 
-	// Execute table creation queries
-	queries := []string{createCDRSummaryTable, createRawCDRTable, createReportsTable}
+	// Execute table creation
+	queries := []string{
+		createCDRSummaryTable,
+		createSearchSessionsTable,
+		createReportsTable,
+	}
 
 	for _, query := range queries {
 		if _, err := ds.db.Exec(query); err != nil {
@@ -94,10 +105,29 @@ func (ds *DatabaseService) createTables() error {
 		}
 	}
 
+	// Create basic indexes for performance
+	return ds.createIndexes()
+}
+
+// createIndexes creates minimal indexes for MVP performance
+func (ds *DatabaseService) createIndexes() error {
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_cdr_summaries_domain ON cdr_summaries(domain)`,
+		`CREATE INDEX IF NOT EXISTS idx_cdr_summaries_start_time ON cdr_summaries(call_start_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_search_sessions_start_time ON search_sessions(start_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_reports_session_id ON reports(session_id)`,
+	}
+
+	for _, index := range indexes {
+		if _, err := ds.db.Exec(index); err != nil {
+			return fmt.Errorf("failed to create index: %w", err)
+		}
+	}
+
 	return nil
 }
 
-// StoreCDRSummary stores a processed CDR summary
+// StoreCDRSummary stores a processed CDR summary (core MVP function)
 func (ds *DatabaseService) StoreCDRSummary(cdr *models.FlexibleCDR) error {
 	startTime, _ := cdr.GetCallStartTime()
 
@@ -112,7 +142,7 @@ func (ds *DatabaseService) StoreCDRSummary(cdr *models.FlexibleCDR) error {
 		cdr.GetID(),
 		cdr.GetDomain(),
 		cdr.GetCallDirection(),
-		startTime.Format("2006-01-02 15:04:05"),
+		startTime,
 		cdr.GetCallDuration(),
 		cdr.GetOrigUser(),
 		cdr.GetTermUser(),
@@ -127,17 +157,27 @@ func (ds *DatabaseService) StoreCDRSummary(cdr *models.FlexibleCDR) error {
 	return err
 }
 
-// StoreRawCDR stores the complete raw CDR data as JSON
-func (ds *DatabaseService) StoreRawCDR(cdr *models.FlexibleCDR, rawJSON string) error {
-	query := `
-	INSERT OR REPLACE INTO raw_cdrs (cdr_id, raw_json, field_count)
-	VALUES (?, ?, ?)`
+// StoreSearchSession stores a simplified search session for user workflow
+func (ds *DatabaseService) StoreSearchSession(sessionID string, criteria CDRSearchCriteria, totalCDRs int) error {
+	criteriaJSON, _ := json.Marshal(criteria)
 
-	_, err := ds.db.Exec(query, cdr.GetID(), rawJSON, len(cdr.GetFieldNames()))
+	query := `
+	INSERT OR REPLACE INTO search_sessions (
+		session_id, search_criteria, total_cdrs, start_time, end_time
+	) VALUES (?, ?, ?, ?, ?)`
+
+	_, err := ds.db.Exec(query,
+		sessionID,
+		string(criteriaJSON),
+		totalCDRs,
+		time.Now(),
+		time.Now(),
+	)
+
 	return err
 }
 
-// GetCDRSummaries retrieves stored CDR summaries with optional filters
+// GetCDRSummaries retrieves CDR summaries with simple filtering (core MVP function)
 func (ds *DatabaseService) GetCDRSummaries(domain string, limit int) ([]CDRSummary, error) {
 	query := `
 	SELECT cdr_id, domain, call_direction, call_start_time, call_duration_seconds,
@@ -185,27 +225,155 @@ func (ds *DatabaseService) GetCDRSummaries(domain string, limit int) ([]CDRSumma
 	return summaries, nil
 }
 
-// StoreReport stores a generated report
-func (ds *DatabaseService) StoreReport(name, reportType, parameters, resultData string, recordCount int) error {
+// GenerateSimpleReport creates a comprehensive but simple report from stored CDRs
+func (ds *DatabaseService) GenerateSimpleReport(sessionID, reportName string, criteria ReportCriteria) (*SimpleReport, error) {
+	// Build query based on criteria
 	query := `
-	INSERT INTO reports (report_name, report_type, parameters, result_data, record_count)
-	VALUES (?, ?, ?, ?, ?)`
+	SELECT cdr_id, domain, call_direction, call_start_time, call_duration_seconds,
+		   orig_user, term_user, disconnect_reason, has_transcription, has_sentiment
+	FROM cdr_summaries WHERE 1=1`
 
-	_, err := ds.db.Exec(query, name, reportType, parameters, resultData, recordCount)
+	args := []interface{}{}
+
+	if criteria.Domain != "" {
+		query += " AND domain = ?"
+		args = append(args, criteria.Domain)
+	}
+
+	if !criteria.StartDate.IsZero() {
+		query += " AND call_start_time >= ?"
+		args = append(args, criteria.StartDate)
+	}
+
+	if !criteria.EndDate.IsZero() {
+		query += " AND call_start_time <= ?"
+		args = append(args, criteria.EndDate)
+	}
+
+	query += " ORDER BY call_start_time DESC"
+
+	if criteria.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, criteria.Limit)
+	}
+
+	rows, err := ds.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// Generate comprehensive but simple report
+	report := &SimpleReport{
+		SessionID:   sessionID,
+		Name:        reportName,
+		GeneratedAt: time.Now(),
+		Totals:      ReportTotals{},
+		Records:     []ReportRecord{},
+	}
+
+	var totalDuration int
+	var inboundCount, outboundCount int
+	var transcriptionCount, sentimentCount int
+
+	for rows.Next() {
+		var record ReportRecord
+		var hasTranscription, hasSentiment bool
+
+		err := rows.Scan(
+			&record.CdrID, &record.Domain, &record.CallDirection,
+			&record.CallStartTime, &record.CallDurationSeconds,
+			&record.OrigUser, &record.TermUser, &record.DisconnectReason,
+			&hasTranscription, &hasSentiment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Calculate totals
+		totalDuration += record.CallDurationSeconds
+		if record.CallDirection == 1 {
+			inboundCount++
+		} else {
+			outboundCount++
+		}
+		if hasTranscription {
+			transcriptionCount++
+		}
+		if hasSentiment {
+			sentimentCount++
+		}
+
+		report.Records = append(report.Records, record)
+	}
+
+	// Set comprehensive totals
+	report.Totals = ReportTotals{
+		TotalCalls:             len(report.Records),
+		TotalDurationSeconds:   totalDuration,
+		InboundCalls:           inboundCount,
+		OutboundCalls:          outboundCount,
+		CallsWithTranscription: transcriptionCount,
+		CallsWithSentiment:     sentimentCount,
+		AverageDurationSeconds: 0,
+	}
+
+	if len(report.Records) > 0 {
+		report.Totals.AverageDurationSeconds = totalDuration / len(report.Records)
+	}
+
+	return report, nil
+}
+
+// StoreReport saves a generated report to database
+func (ds *DatabaseService) StoreReport(report *SimpleReport, format string) error {
+	var reportData string
+	var err error
+
+	// Convert report to requested format
+	switch format {
+	case "json":
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return err
+		}
+		reportData = string(data)
+	case "csv":
+		reportData, err = ds.convertToCSV(report)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported format: %s", format)
+	}
+
+	query := `
+	INSERT INTO reports (session_id, report_name, report_type, report_data, record_count, file_size_bytes)
+	VALUES (?, ?, ?, ?, ?, ?)`
+
+	_, err = ds.db.Exec(query,
+		report.SessionID,
+		report.Name,
+		format,
+		reportData,
+		report.Totals.TotalCalls,
+		len(reportData),
+	)
+
 	return err
 }
 
-// GetReports retrieves stored reports
-func (ds *DatabaseService) GetReports(reportType string, limit int) ([]Report, error) {
+// GetStoredReports retrieves previously generated reports
+func (ds *DatabaseService) GetStoredReports(sessionID string, limit int) ([]StoredReport, error) {
 	query := `
-	SELECT id, report_name, report_type, parameters, result_data, record_count, created_at
+	SELECT id, session_id, report_name, report_type, record_count, file_size_bytes, created_at
 	FROM reports`
 
 	args := []interface{}{}
 
-	if reportType != "" {
-		query += " WHERE report_type = ?"
-		args = append(args, reportType)
+	if sessionID != "" {
+		query += " WHERE session_id = ?"
+		args = append(args, sessionID)
 	}
 
 	query += " ORDER BY created_at DESC"
@@ -221,12 +389,13 @@ func (ds *DatabaseService) GetReports(reportType string, limit int) ([]Report, e
 	}
 	defer rows.Close()
 
-	var reports []Report
+	var reports []StoredReport
 	for rows.Next() {
-		var report Report
+		var report StoredReport
 		err := rows.Scan(
-			&report.ID, &report.Name, &report.Type, &report.Parameters,
-			&report.ResultData, &report.RecordCount, &report.CreatedAt,
+			&report.ID, &report.SessionID, &report.Name,
+			&report.Type, &report.RecordCount, &report.FileSizeBytes,
+			&report.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -237,12 +406,32 @@ func (ds *DatabaseService) GetReports(reportType string, limit int) ([]Report, e
 	return reports, nil
 }
 
-// Supporting structs for database operations
+// convertToCSV converts a SimpleReport to CSV format
+func (ds *DatabaseService) convertToCSV(report *SimpleReport) (string, error) {
+	csv := "CDR_ID,Domain,Call_Direction,Start_Time,Duration_Seconds,Orig_User,Term_User,Disconnect_Reason\n"
+
+	for _, record := range report.Records {
+		csv += fmt.Sprintf("%s,%s,%d,%s,%d,%s,%s,%s\n",
+			record.CdrID,
+			record.Domain,
+			record.CallDirection,
+			record.CallStartTime.Format("2006-01-02 15:04:05"),
+			record.CallDurationSeconds,
+			record.OrigUser,
+			record.TermUser,
+			record.DisconnectReason,
+		)
+	}
+
+	return csv, nil
+}
+
+// Supporting structs for simplified MVP database operations
 type CDRSummary struct {
 	CdrID               string    `json:"cdr_id"`
 	Domain              string    `json:"domain"`
 	CallDirection       int       `json:"call_direction"`
-	CallStartTime       string    `json:"call_start_time"`
+	CallStartTime       time.Time `json:"call_start_time"`
 	CallDurationSeconds int       `json:"call_duration_seconds"`
 	OrigUser            string    `json:"orig_user"`
 	TermUser            string    `json:"term_user"`
@@ -255,12 +444,48 @@ type CDRSummary struct {
 	CreatedAt           time.Time `json:"created_at"`
 }
 
-type Report struct {
-	ID          int       `json:"id"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Parameters  string    `json:"parameters"`
-	ResultData  string    `json:"result_data"`
-	RecordCount int       `json:"record_count"`
-	CreatedAt   time.Time `json:"created_at"`
+type ReportCriteria struct {
+	Domain    string    `json:"domain"`
+	StartDate time.Time `json:"start_date"`
+	EndDate   time.Time `json:"end_date"`
+	Limit     int       `json:"limit"`
+}
+
+type SimpleReport struct {
+	SessionID   string         `json:"session_id"`
+	Name        string         `json:"name"`
+	GeneratedAt time.Time      `json:"generated_at"`
+	Totals      ReportTotals   `json:"totals"`
+	Records     []ReportRecord `json:"records"`
+}
+
+type ReportTotals struct {
+	TotalCalls             int `json:"total_calls"`
+	TotalDurationSeconds   int `json:"total_duration_seconds"`
+	InboundCalls           int `json:"inbound_calls"`
+	OutboundCalls          int `json:"outbound_calls"`
+	CallsWithTranscription int `json:"calls_with_transcription"`
+	CallsWithSentiment     int `json:"calls_with_sentiment"`
+	AverageDurationSeconds int `json:"average_duration_seconds"`
+}
+
+type ReportRecord struct {
+	CdrID               string    `json:"cdr_id"`
+	Domain              string    `json:"domain"`
+	CallDirection       int       `json:"call_direction"`
+	CallStartTime       time.Time `json:"call_start_time"`
+	CallDurationSeconds int       `json:"call_duration_seconds"`
+	OrigUser            string    `json:"orig_user"`
+	TermUser            string    `json:"term_user"`
+	DisconnectReason    string    `json:"disconnect_reason"`
+}
+
+type StoredReport struct {
+	ID            int       `json:"id"`
+	SessionID     string    `json:"session_id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"`
+	RecordCount   int       `json:"record_count"`
+	FileSizeBytes int       `json:"file_size_bytes"`
+	CreatedAt     time.Time `json:"created_at"`
 }
