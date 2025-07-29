@@ -23,16 +23,18 @@ type CDRDiscoveryService struct {
 
 // CDRSearchCriteria - flexible search criteria, all fields optional
 type CDRSearchCriteria struct {
-	Domain    string     `json:"domain,omitempty"`
-	User      string     `json:"user,omitempty"`
-	Site      string     `json:"site,omitempty"` // Site/location filter
-	CallID    string     `json:"call_id,omitempty"`
-	Number    string     `json:"number,omitempty"`
-	StartDate *time.Time `json:"start_date,omitempty"`
-	EndDate   *time.Time `json:"end_date,omitempty"`
-	Start     int        `json:"start,omitempty"` // Pagination offset
-	Limit     int        `json:"limit,omitempty"` // Max records per endpoint
-	Raw       bool       `json:"raw,omitempty"`   // Force raw data (always true for bulk dumps)
+	Domain            string     `json:"domain,omitempty"`
+	User              string     `json:"user,omitempty"`
+	Site              string     `json:"site,omitempty"` // Site/location filter
+	CallID            string     `json:"call_id,omitempty"`
+	StartDate         *time.Time `json:"start_date,omitempty"`
+	EndDate           *time.Time `json:"end_date,omitempty"`
+	Start             int        `json:"start,omitempty"` // Pagination offset
+	Limit             int        `json:"limit,omitempty"` // Max records per endpoint
+	Raw               bool       `json:"raw,omitempty"`   // Force raw data (always true for bulk dumps)
+	OriginatingNumber string     `json:"originating_number"`
+	TerminatingNumber string     `json:"terminating_number"`
+	AnyPhoneNumber    string     `json:"any_phone_number"`
 }
 
 // CDRDiscoveryResult - comprehensive result from all endpoints
