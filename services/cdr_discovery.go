@@ -327,6 +327,10 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 }
 
 // buildEndpointURL builds the complete URL for an endpoint with parameters (including raw=yes)
+// Replace the buildEndpointURL method in your services/cdr_discovery.go file
+// with this corrected version
+
+// buildEndpointURL builds the complete URL for an endpoint with parameters (including raw=yes)
 func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfig, criteria CDRSearchCriteria) (string, error) {
 	// Start with URL template
 	urlPath := endpointConfig.URLTemplate
@@ -354,10 +358,11 @@ func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfi
 
 	// Add date parameters if provided
 	if criteria.StartDate != nil {
-		params.Add("start_date", criteria.StartDate.Format("2006-01-02"))
+		// Use NetSapiens standard parameter names (start/end, not start_date/end_date)
+		params.Add("start", criteria.StartDate.Format("2006-01-02"))
 	}
 	if criteria.EndDate != nil {
-		params.Add("end_date", criteria.EndDate.Format("2006-01-02"))
+		params.Add("end", criteria.EndDate.Format("2006-01-02"))
 	}
 
 	// Add call ID if provided
@@ -365,9 +370,12 @@ func (cds *CDRDiscoveryService) buildEndpointURL(endpointConfig CDREndpointConfi
 		params.Add("call_id", criteria.CallID)
 	}
 
-	// Add number if provided
-	if criteria.Number != "" {
-		params.Add("number", criteria.Number)
+	// Add phone number parameters with correct field names
+	if criteria.OriginatingNumber != "" {
+		params.Add("orig_number", criteria.OriginatingNumber)
+	}
+	if criteria.TerminatingNumber != "" {
+		params.Add("term_number", criteria.TerminatingNumber)
 	}
 
 	// Build final URL
