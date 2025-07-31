@@ -54,7 +54,7 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 			limit = 100 // Default fallback
 		}
 
-		// NEW: Enhanced validation
+		// Validation
 		validationErrors := validateSearchCriteria(domain, user, site, callID,
 			originatingNumber, terminatingNumber, anyPhoneNumber, startDate, endDate)
 
@@ -68,13 +68,11 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 
 		// Create search criteria with UPDATED field names
 		criteria := services.CDRSearchCriteria{
-			Domain: domain,
-			User:   user,
-			Site:   site,
-			CallID: callID,
-			Limit:  limit,
-
-			// NEW: Use correct phone number field names
+			Domain:            domain,
+			User:              user,
+			Site:              site,
+			CallID:            callID,
+			Limit:             limit,
 			OriginatingNumber: originatingNumber,
 			TerminatingNumber: terminatingNumber,
 			AnyPhoneNumber:    anyPhoneNumber,
@@ -92,7 +90,7 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 			}
 		}
 
-		// NEW: Handle Call ID searches with priority (synchronous processing)
+		// Handle Call ID searches with priority (synchronous processing)
 		if criteria.CallID != "" {
 			result, err := cdrService.GetComprehensiveCDRs(criteria)
 			if err != nil {
