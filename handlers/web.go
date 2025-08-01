@@ -15,6 +15,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ShowSPA serves the single page application
+func ShowSPA(c *gin.Context) {
+	c.HTML(http.StatusOK, "index.html", gin.H{
+		"title": "O Dan Go - CDR Discovery",
+	})
+}
+
 // ShowWelcomePage displays the main welcome page
 func ShowWelcomePage(c *gin.Context) {
 	c.HTML(http.StatusOK, "welcome.html", gin.H{
