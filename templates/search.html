@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.title}}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group.full { grid-column: span 2; }
+        label { display: block; margin-bottom: 5px; font-weight: 600; color: #555; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; }
+        input:focus { outline: none; border-color: #667eea; }
+        .button { background: #667eea; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
+        .button:hover { background: #5a67d8; }
+        h2 { color: #333; margin-bottom: 20px; }
+        .help-text { font-size: 12px; color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Search CDRs</h2>
+        <form method="POST" action="/web/search">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Domain:</label>
+                    <input type="text" name="domain" placeholder="example.com">
+                </div>
+                <div class="form-group">
+                    <label>User:</label>
+                    <input type="text" name="user" placeholder="username">
+                </div>
+                <div class="form-group">
+                    <label>Site:</label>
+                    <input type="text" name="site" placeholder="site-name">
+                </div>
+                <div class="form-group">
+                    <label>Call ID:</label>
+                    <input type="text" name="call_id" placeholder="call-id">
+                </div>
+                <div class="form-group full">
+                    <label>Any Phone Number:</label>
+                    <input type="text" name="any_phone_number" placeholder="+1234567890">
+                    <div class="help-text">Searches both originating and terminating numbers</div>
+                </div>
+                <div class="form-group">
+                    <label>Originating Number:</label>
+                    <input type="text" name="originating_number" placeholder="+1234567890">
+                </div>
+                <div class="form-group">
+                    <label>Terminating Number:</label>
+                    <input type="text" name="terminating_number" placeholder="+1234567890">
+                </div>
+                <div class="form-group">
+                    <label>Start Date:</label>
+                    <input type="date" name="start_date">
+                </div>
+                <div class="form-group">
+                    <label>End Date:</label>
+                    <input type="date" name="end_date">
+                </div>
+                <div class="form-group full">
+                    <label>Limit (per endpoint):</label>
+                    <input type="number" name="limit" value="100" min="1" max="1000">
+                </div>
+            </div>
+            <button type="submit" class="button">Search CDRs</button>
+        </form>
+    </div>
+</body>
+</html>
