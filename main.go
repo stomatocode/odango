@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"o-dan-go/config"
@@ -57,6 +58,40 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// ResultsStore provides temporary in-memory storage for CDR results
+type ResultsStore struct {
+	mu      sync.RWMutex
+	results map[string]*services.CDRDiscoveryResult
+}
+
+// Global results store instance
+var GlobalResultsStore = &ResultsStore{
+	results: make(map[string]*services.CDRDiscoveryResult),
+}
+
+// Store saves a CDR discovery result
+func (rs *ResultsStore) Store(sessionID string, result *services.CDRDiscoveryResult) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.results[sessionID] = result
+
+	// Clean up old results after 1 hour
+	go func() {
+		time.Sleep(1 * time.Hour)
+		rs.mu.Lock()
+		delete(rs.results, sessionID)
+		rs.mu.Unlock()
+	}()
+}
+
+// Get retrieves a CDR discovery result
+func (rs *ResultsStore) Get(sessionID string) (*services.CDRDiscoveryResult, bool) {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	result, exists := rs.results[sessionID]
+	return result, exists
+}
 
 func main() {
 	// Load configuration first

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log" // logging line
 	"net/http"
+	"o-dan-go/main"
 	"o-dan-go/services"
 	"regexp"
 	"strconv"
@@ -136,6 +137,8 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 		log.Printf("[Web Handler] Session ID: %s", result.SessionID)
 		log.Printf("[Web Handler] Total CDRs: %d, Unique: %d", result.TotalCDRs, result.UniqueCDRs)
 
+		main.GlobalResultsStore.Store(result.SessionID, result)
+
 		// Redirect to results page with session ID
 		c.Redirect(http.StatusFound, "/web/results/"+result.SessionID)
 	}
@@ -238,13 +241,31 @@ func isValidPhoneNumber(phone string) bool {
 func ShowResults(c *gin.Context) {
 	sessionID := c.Param("session_id")
 
-	// TODO: In future iterations, retrieve actual results from database
-	// For now, show basic results page
-	c.HTML(http.StatusOK, "results.html", gin.H{
-		"title":     "Search Results - O Dan Go",
-		"sessionID": sessionID,
-		"message":   "CDR search completed. Results processing coming soon...",
-	})
+	// Try to get results from memory store
+	result, exists := main.GlobalResultsStore.Get(sessionID)
+
+	if exists {
+		// Calculate query time
+		queryTime := result.EndTime.Sub(result.StartTime).Seconds()
+
+		c.HTML(http.StatusOK, "results.html", gin.H{
+			"title":     "Search Results - O Dan Go",
+			"sessionID": sessionID,
+			"message": fmt.Sprintf("Found %d unique CDRs from %d total CDRs across %d endpoints",
+				result.UniqueCDRs, result.TotalCDRs, len(result.EndpointResults)),
+			"totalCDRs":     result.TotalCDRs,
+			"uniqueCDRs":    result.UniqueCDRs,
+			"endpointCount": len(result.EndpointResults),
+			"queryTime":     fmt.Sprintf("%.2f", queryTime),
+			"endpoints":     result.EndpointResults,
+		})
+	} else {
+		c.HTML(http.StatusOK, "results.html", gin.H{
+			"title":     "Search Results - O Dan Go",
+			"sessionID": sessionID,
+			"message":   "Session not found or expired. Results are stored for 1 hour.",
+		})
+	}
 }
 
 // HealthCheck provides API health status
