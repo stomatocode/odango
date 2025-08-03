@@ -5,12 +5,12 @@ package handlers
 
 import (
 	"fmt"
+	"log" // logging line
 	"net/http"
+	"o-dan-go/services"
 	"regexp"
 	"strconv"
 	"time"
-
-	"o-dan-go/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,7 +61,10 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 			limit = 100 // Default fallback
 		}
 
-		// Validation
+		// **** Validation
+		// logging
+		log.Printf("[Web Handler] Processing search request")
+		log.Printf("[Web Handler] Domain: %s, User: %s, Site: %s", domain, user, site)
 		validationErrors := validateSearchCriteria(domain, user, site, callID,
 			originatingNumber, terminatingNumber, anyPhoneNumber, startDate, endDate)
 
@@ -112,16 +115,26 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 			c.Redirect(http.StatusFound, "/web/results/"+result.SessionID)
 			return
 		}
+		// log to console
+		log.Printf("[Web Handler] Starting CDR discovery...")
 
 		// For other searches, perform comprehensive search
 		result, err := cdrService.GetComprehensiveCDRs(criteria)
+
 		if err != nil {
+			log.Printf("[Web Handler] ERROR: CDR search failed: %v", err) // logging
+
 			c.HTML(http.StatusInternalServerError, "error.html", gin.H{
 				"title": "Search Error - O Dan Go",
 				"error": fmt.Sprintf("CDR search failed: %v", err),
 			})
 			return
 		}
+
+		// logging
+		log.Printf("[Web Handler] Search completed successfully")
+		log.Printf("[Web Handler] Session ID: %s", result.SessionID)
+		log.Printf("[Web Handler] Total CDRs: %d, Unique: %d", result.TotalCDRs, result.UniqueCDRs)
 
 		// Redirect to results page with session ID
 		c.Redirect(http.StatusFound, "/web/results/"+result.SessionID)

@@ -6,12 +6,12 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
-	"strings"
-	"time"
-
 	"o-dan-go/models"
+	"strings"
+	"time" // add for console logging
 )
 
 // CDRDiscoveryService handles comprehensive CDR discovery across multiple endpoints
@@ -19,6 +19,8 @@ type CDRDiscoveryService struct {
 	client      *http.Client
 	baseURL     string
 	accessToken string
+	debug       bool // console logging
+
 }
 
 // CDRSearchCriteria - flexible search criteria, all fields optional
@@ -81,6 +83,14 @@ func NewCDRDiscoveryService(baseURL, accessToken string) *CDRDiscoveryService {
 		client:      &http.Client{Timeout: 30 * time.Second},
 		baseURL:     strings.TrimRight(baseURL, "/"),
 		accessToken: accessToken,
+		debug:       true, // console logging
+	}
+}
+
+// console logging helper method
+func (cds *CDRDiscoveryService) logDebug(format string, args ...interface{}) {
+	if cds.debug {
+		log.Printf("[CDR Discovery] "+format, args...)
 	}
 }
 
@@ -151,13 +161,20 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 	startTime := time.Now()
 	sessionID := cds.generateSessionID()
 
+	// logging
+	cds.logDebug("=== NEW CDR SEARCH SESSION STARTED ===")
+	cds.logDebug("Session ID: %s", sessionID)
+	cds.logDebug("Search Criteria: %+v", criteria)
+
 	// Set default pagination if not provided
 	if criteria.Limit == 0 {
 		criteria.Limit = 100 // Default limit per endpoint
 	}
 
-	// IMPORTANT: Always force raw=yes for bulk CDR dumps to get complete data
+	// ************************************************************************
+	// IMPORTANT: Always force raw=yes for bulk CDR dumps for complete data
 	criteria.Raw = true
+	cds.logDebug("Raw data mode: ENABLED") // log raw data mode
 
 	result := &CDRDiscoveryResult{
 		SessionID:       sessionID,
@@ -170,11 +187,40 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 
 	// Determine which endpoints to query based on available criteria
 	endpointsToQuery := cds.selectEndpointsToQuery(criteria)
+	// logging:
+	cds.logDebug("Endpoints selected for query: %d", len(endpointsToQuery))
+	for _, ep := range endpointsToQuery {
+		cds.logDebug("  - %s: %s", ep.Name, ep.Description)
+	}
 
 	// Query each relevant endpoint
 	for _, endpointConfig := range endpointsToQuery {
+		cds.logDebug("\n--- Querying endpoint: %s ---", endpointConfig.Name) // logging to console
+
 		endpointResult := cds.queryEndpoint(endpointConfig, criteria)
 		result.EndpointResults = append(result.EndpointResults, endpointResult)
+
+		// logging block:
+		if endpointResult.Success {
+			cds.logDebug("✓ SUCCESS: %s", endpointConfig.Name)
+			cds.logDebug("  Records found: %d", endpointResult.RecordCount)
+			cds.logDebug("  Query time: %v", endpointResult.QueryTime)
+			cds.logDebug("  HTTP status: %d", endpointResult.HTTPStatus)
+
+			if len(endpointResult.CDRs) > 0 {
+				result.CDRsByEndpoint[endpointConfig.Name] = endpointResult.CDRs
+				result.AllCDRs = append(result.AllCDRs, endpointResult.CDRs...)
+
+				// Log sample CDR
+				sampleCDR := endpointResult.CDRs[0]
+				cds.logDebug("  Sample CDR ID: %s", sampleCDR.GetID())
+				cds.logDebug("  Sample Domain: %s", sampleCDR.GetDomain())
+			}
+		} else {
+			cds.logDebug("✗ FAILED: %s", endpointConfig.Name)
+			cds.logDebug("  Error: %s", endpointResult.Error)
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", endpointConfig.Name, endpointResult.Error))
+		}
 
 		if endpointResult.Success && len(endpointResult.CDRs) > 0 {
 			result.CDRsByEndpoint[endpointConfig.Name] = endpointResult.CDRs
@@ -186,11 +232,34 @@ func (cds *CDRDiscoveryService) GetComprehensiveCDRs(criteria CDRSearchCriteria)
 		}
 	}
 
+	// logging duplication:
+	cds.logDebug("\n--- Deduplication ---")
+	cds.logDebug("Total CDRs before deduplication: %d", len(result.AllCDRs))
+
 	// Deduplicate CDRs by ID
 	result.AllCDRs = cds.deduplicateCDRs(result.AllCDRs)
 	result.UniqueCDRs = len(result.AllCDRs)
 	result.TotalCDRs = cds.countTotalCDRs(result.CDRsByEndpoint)
 	result.EndTime = time.Now()
+
+	// console logging:
+	cds.logDebug("Unique CDRs after deduplication: %d", result.UniqueCDRs)
+	cds.logDebug("Duplicates removed: %d", result.TotalCDRs-result.UniqueCDRs)
+
+	// Log final summary
+	cds.logDebug("\n=== SEARCH SESSION COMPLETED ===")
+	cds.logDebug("Session ID: %s", sessionID)
+	cds.logDebug("Total execution time: %v", result.EndTime.Sub(result.StartTime))
+	cds.logDebug("Total CDRs found: %d", result.TotalCDRs)
+	cds.logDebug("Unique CDRs: %d", result.UniqueCDRs)
+	cds.logDebug("Endpoints queried: %d", len(result.EndpointResults))
+	cds.logDebug("Errors encountered: %d", len(result.Errors))
+
+	// Log CDR distribution by endpoint
+	cds.logDebug("\nCDR Distribution by Endpoint:")
+	for endpoint, cdrs := range result.CDRsByEndpoint {
+		cds.logDebug("  %s: %d CDRs", endpoint, len(cdrs))
+	}
 
 	return result, nil
 }
@@ -269,6 +338,8 @@ func (cds *CDRDiscoveryService) queryEndpoint(endpointConfig CDREndpointConfig, 
 
 	result.URL = url
 	result.RawDataUsed = endpointConfig.SupportsRaw && criteria.Raw
+	// logging to console:
+	cds.logDebug("  URL: %s", url)
 
 	// Make HTTP request
 	req, err := http.NewRequest("GET", url, nil)
