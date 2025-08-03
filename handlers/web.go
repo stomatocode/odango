@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log" // logging line
 	"net/http"
-	"o-dan-go/main"
 	"o-dan-go/services"
 	"regexp"
 	"strconv"
@@ -137,7 +136,7 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 		log.Printf("[Web Handler] Session ID: %s", result.SessionID)
 		log.Printf("[Web Handler] Total CDRs: %d, Unique: %d", result.TotalCDRs, result.UniqueCDRs)
 
-		main.GlobalResultsStore.Store(result.SessionID, result)
+		services.GlobalResultsStore.Store(result.SessionID, result)
 
 		// Redirect to results page with session ID
 		c.Redirect(http.StatusFound, "/web/results/"+result.SessionID)
@@ -242,7 +241,7 @@ func ShowResults(c *gin.Context) {
 	sessionID := c.Param("session_id")
 
 	// Try to get results from memory store
-	result, exists := main.GlobalResultsStore.Get(sessionID)
+	result, exists := services.GlobalResultsStore.Get(sessionID)
 
 	if exists {
 		// Calculate query time
