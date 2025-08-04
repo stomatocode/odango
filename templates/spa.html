@@ -29,10 +29,10 @@
             <div style="margin-top: 20px;">
                 <h3>Quick Start</h3>
                 <ul style="margin-left: 20px; line-height: 2;">
+                    <li>Enter your NetSapiens API credentials</li>
                     <li>Search by Call ID for precise results</li>
                     <li>Use domain + user for targeted searches</li>
                     <li>Search by phone number to find all related calls</li>
-                    <li>Combine criteria for comprehensive discovery</li>
                 </ul>
             </div>
             
@@ -48,6 +48,22 @@
             <h2>CDR Search</h2>
             
             <form id="searchForm" action="/web/search" method="POST">
+                <!-- API Credentials Section -->
+                <div class="form-section" style="background: #f0f7ff; padding: 15px; margin-bottom: 20px; border: 1px solid #2196f3;">
+                    <h3>API Credentials</h3>
+                <div class="form-group">
+                    <label for="api_url">NetSapiens API URL</label>
+                    <input type="text" id="api_url" name="api_url" placeholder="https://api.netsapiens.com" required>
+                    <div class="form-hint">Base URL only (e.g., https://api.company.com) - do not include /ns-api path</div>  <!-- HINT -->
+                </div>
+                    
+                    <div class="form-group">
+                        <label for="api_token">Bearer Token</label>
+                        <input type="password" id="api_token" name="api_token" placeholder="Your bearer token" required>
+                        <div class="form-hint">Your NetSapiens OAuth bearer token (stored for 4 hours)</div>
+                    </div>
+                </div>
+
                 <!-- Domain Context -->
                 <div class="form-section">
                     <h3>Domain Context</h3>
@@ -131,7 +147,7 @@
                 <!-- Submit -->
                 <div style="margin-top: 20px;">
                     <button type="submit" class="btn btn-primary">Search CDRs</button>
-                    <button type="reset" class="btn">Clear Form</button>
+                    <button type="reset" class="btn" onclick="app.clearCredentials()">Clear Form</button>
                 </div>
             </form>
         </div>

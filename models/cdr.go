@@ -14,7 +14,13 @@ type FlexibleCDR struct {
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
+// This is called when converting FROM JSON to our struct
 func (f *FlexibleCDR) UnmarshalJSON(data []byte) error {
+	// Initialize the map if it's nil
+	if f.RawData == nil {
+		f.RawData = make(map[string]interface{})
+	}
+
 	// Unmarshal everything into raw map
 	if err := json.Unmarshal(data, &f.RawData); err != nil {
 		return err
@@ -29,8 +35,20 @@ func (f *FlexibleCDR) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON implements the json.Marshaler interface
+// This is called when converting FROM our struct to JSON
+// THIS IS THE KEY FIX - it tells Go what to output as JSON
+func (f *FlexibleCDR) MarshalJSON() ([]byte, error) {
+	// When someone asks for JSON, give them the actual CDR data
+	// not the struct fields
+	return json.Marshal(f.RawData)
+}
+
 // String field access with fallback
 func (f *FlexibleCDR) GetString(field string) string {
+	if f.RawData == nil {
+		return ""
+	}
 	if val, ok := f.RawData[field]; ok && val != nil {
 		if str, ok := val.(string); ok {
 			return str
@@ -43,6 +61,9 @@ func (f *FlexibleCDR) GetString(field string) string {
 
 // Integer field access with fallback
 func (f *FlexibleCDR) GetInt(field string) int {
+	if f.RawData == nil {
+		return 0
+	}
 	if val, ok := f.RawData[field]; ok && val != nil {
 		switch v := val.(type) {
 		case float64: // JSON numbers are float64
@@ -60,6 +81,9 @@ func (f *FlexibleCDR) GetInt(field string) int {
 
 // Integer field access returning int64 for large phone numbers
 func (f *FlexibleCDR) GetInt64(field string) int64 {
+	if f.RawData == nil {
+		return 0
+	}
 	if val, ok := f.RawData[field]; ok && val != nil {
 		switch v := val.(type) {
 		case float64:
@@ -79,6 +103,9 @@ func (f *FlexibleCDR) GetInt64(field string) int64 {
 
 // Boolean field access
 func (f *FlexibleCDR) GetBool(field string) bool {
+	if f.RawData == nil {
+		return false
+	}
 	if val, ok := f.RawData[field]; ok && val != nil {
 		switch v := val.(type) {
 		case bool:
@@ -96,6 +123,9 @@ func (f *FlexibleCDR) GetBool(field string) bool {
 
 // Float field access for percentages and decimals
 func (f *FlexibleCDR) GetFloat(field string) float64 {
+	if f.RawData == nil {
+		return 0.0
+	}
 	if val, ok := f.RawData[field]; ok && val != nil {
 		switch v := val.(type) {
 		case float64:
@@ -137,6 +167,9 @@ func (f *FlexibleCDR) GetTime(field string) (time.Time, error) {
 
 // Check if a field exists in the response
 func (f *FlexibleCDR) HasField(field string) bool {
+	if f.RawData == nil {
+		return false
+	}
 	_, exists := f.RawData[field]
 	return exists
 }
@@ -148,6 +181,9 @@ func (f *FlexibleCDR) GetFieldNames() []string {
 
 // Get the raw value for a field (returns interface{})
 func (f *FlexibleCDR) GetRaw(field string) interface{} {
+	if f.RawData == nil {
+		return nil
+	}
 	return f.RawData[field]
 }
 
@@ -176,6 +212,10 @@ func (f *FlexibleCDR) GetCallStartTime() (time.Time, error) {
 func (f *FlexibleCDR) GetCallDuration() int {
 	// Try modern field name first
 	if duration := f.GetInt("call-total-duration-seconds"); duration > 0 {
+		return duration
+	}
+	// Also try without seconds suffix
+	if duration := f.GetInt("call-duration"); duration > 0 {
 		return duration
 	}
 	return f.GetInt("duration")
@@ -250,7 +290,7 @@ func (f *FlexibleCDR) GetAvailableReportFields() []string {
 	// Essential fields every report should check for
 	essentialFields := []string{
 		"id", "domain", "call-direction", "call-start-datetime",
-		"call-total-duration-seconds", "call-orig-user", "call-term-user",
+		"call-total-duration-seconds", "call-duration", "call-orig-user", "call-term-user",
 		"call-disconnect-reason-text", "call-orig-caller-id", "call-term-caller-id",
 	}
 

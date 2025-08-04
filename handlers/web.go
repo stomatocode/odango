@@ -39,9 +39,25 @@ func ShowSearchForm(c *gin.Context) {
 	})
 }
 
-// ProcessSearchForm handles search form submission with enhanced validation
+// ProcessSearchForm handles search form submission with enhanced validation, with API credentials
 func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Get API credentials from form
+		apiURL := c.PostForm("api_url")
+		apiToken := c.PostForm("api_token")
+
+		// Validate API credentials
+		if apiURL == "" || apiToken == "" {
+			c.HTML(http.StatusBadRequest, "error.html", gin.H{
+				"title": "Authentication Error - O Dan Go",
+				"error": "API URL and Bearer Token are required",
+			})
+			return
+		}
+
+		// Create CDR service with user-provided credentials
+		userCDRService := services.NewCDRDiscoveryService(apiURL, apiToken)
+
 		// Get form data with UPDATED field names
 		domain := c.PostForm("domain")
 		user := c.PostForm("user")
@@ -102,26 +118,11 @@ func ProcessSearchForm(cdrService *services.CDRDiscoveryService) gin.HandlerFunc
 			}
 		}
 
-		// Handle Call ID searches with priority (synchronous processing)
-		if criteria.CallID != "" {
-			result, err := cdrService.GetComprehensiveCDRs(criteria)
-			if err != nil {
-				c.HTML(http.StatusInternalServerError, "error.html", gin.H{
-					"title": "Call ID Search Error - O Dan Go",
-					"error": fmt.Sprintf("Call ID search failed: %v", err),
-				})
-				return
-			}
-
-			// For Call ID searches, redirect directly to results with immediate data
-			c.Redirect(http.StatusFound, "/web/results/"+result.SessionID)
-			return
-		}
 		// log to console
-		log.Printf("[Web Handler] Starting CDR discovery...")
+		log.Printf("[Web Handler] Starting CDR discovery with user-provided credentials...")
 
-		// For other searches, perform comprehensive search
-		result, err := cdrService.GetComprehensiveCDRs(criteria)
+		// Use the user-provided CDR service instead of the default one
+		result, err := userCDRService.GetComprehensiveCDRs(criteria)
 
 		if err != nil {
 			log.Printf("[Web Handler] ERROR: CDR search failed: %v", err) // logging

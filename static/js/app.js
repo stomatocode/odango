@@ -1,9 +1,12 @@
-// O Dan Go - Minimal Functional JavaScript
+// O Dan Go - Minimal Functional JavaScript with Credential Storage
 
 const app = {
     currentView: 'welcome',
     
     init() {
+        // Check and restore saved credentials (if not expired)
+        this.restoreCredentials();
+        
         // Set up navigation
         document.querySelectorAll('.nav a').forEach(link => {
             link.addEventListener('click', (e) => {
@@ -28,6 +31,75 @@ const app = {
         // Show initial view based on URL hash
         const hash = window.location.hash.substring(1) || 'welcome';
         this.showView(hash);
+        
+        // Set up 4-hour expiry check
+        this.startExpiryCheck();
+    },
+    
+    restoreCredentials() {
+        const savedData = localStorage.getItem('odango_credentials');
+        if (savedData) {
+            try {
+                const data = JSON.parse(savedData);
+                const now = new Date().getTime();
+                
+                // Check if expired (4 hours = 14400000 ms)
+                if (now - data.timestamp < 14400000) {
+                    // Restore credentials
+                    if (document.getElementById('api_url')) {
+                        document.getElementById('api_url').value = data.api_url || '';
+                    }
+                    if (document.getElementById('api_token')) {
+                        document.getElementById('api_token').value = data.api_token || '';
+                    }
+                } else {
+                    // Expired, clear storage
+                    localStorage.removeItem('odango_credentials');
+                }
+            } catch (e) {
+                // Invalid data, clear it
+                localStorage.removeItem('odango_credentials');
+            }
+        }
+    },
+    
+    saveCredentials() {
+        const apiUrl = document.getElementById('api_url').value;
+        const apiToken = document.getElementById('api_token').value;
+        
+        if (apiUrl && apiToken) {
+            const data = {
+                api_url: apiUrl,
+                api_token: apiToken,
+                timestamp: new Date().getTime()
+            };
+            localStorage.setItem('odango_credentials', JSON.stringify(data));
+        }
+    },
+    
+    clearCredentials() {
+        localStorage.removeItem('odango_credentials');
+        this.showMessage('Credentials cleared', 'success');
+    },
+    
+    startExpiryCheck() {
+        // Check every minute if credentials have expired
+        setInterval(() => {
+            const savedData = localStorage.getItem('odango_credentials');
+            if (savedData) {
+                const data = JSON.parse(savedData);
+                const now = new Date().getTime();
+                
+                if (now - data.timestamp >= 14400000) {
+                    localStorage.removeItem('odango_credentials');
+                    if (this.currentView === 'search') {
+                        this.showMessage('Your API credentials have expired. Please re-enter them.', 'error');
+                        document.getElementById('api_url').value = '';
+                        document.getElementById('api_token').value = '';
+                    }
+                }
+            }
+        }, 60000); // Check every minute
     },
     
     showView(viewName) {
@@ -90,8 +162,23 @@ const app = {
         // Get form data
         const formData = new FormData(document.getElementById('searchForm'));
         
-        // Basic validation
-        const hasSearchCriteria = Array.from(formData.values()).some(value => value.trim() !== '');
+        // Validate API credentials
+        const apiUrl = formData.get('api_url');
+        const apiToken = formData.get('api_token');
+        
+        if (!apiUrl || !apiToken) {
+            this.showMessage('Please enter your API URL and Bearer Token', 'error');
+            return;
+        }
+        
+        // Save credentials for 4 hours
+        this.saveCredentials();
+        
+        // Basic validation for search criteria
+        const hasSearchCriteria = Array.from(formData.entries())
+            .filter(([key]) => !['api_url', 'api_token', 'limit'].includes(key))
+            .some(([_, value]) => value.trim() !== '');
+            
         if (!hasSearchCriteria) {
             this.showMessage('Please enter at least one search criterion', 'error');
             return;
@@ -100,8 +187,7 @@ const app = {
         // Show loading
         this.showLoading(true);
         
-        // Submit form (using traditional form submission for now)
-        // In production, this would be an AJAX call
+        // Submit form
         document.getElementById('searchForm').submit();
     },
     
