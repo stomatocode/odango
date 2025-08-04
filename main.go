@@ -113,7 +113,7 @@ func main() {
 		cfg.NetsapiensToken,
 	)
 
-	// Create a Gin router with default middleware (logger and recovery)
+	// GIN ROUTER with default middleware (logger and recovery)
 	r := gin.Default()
 
 	// Load HTML templates for web interface
@@ -122,7 +122,7 @@ func main() {
 	// Serve static files (CSS, JS, images)
 	r.Static("/static", "./static")
 
-	// API Routes (existing functionality)
+	// API Routes - switch to SPA
 	r.GET("/", handlers.ShowSPA)
 
 	// Web Interface Routes (new functionality)
@@ -131,7 +131,13 @@ func main() {
 	r.POST("/web/search", handlers.ProcessSearchForm(cdrService))
 	r.GET("/web/results/:session_id", handlers.ShowResults)
 
-	// API routes group for future expansion
+	// API endpoint for CDR preview
+	r.GET("/web/api/cdrs/:session_id", handlers.GetCDRsAPI)
+
+	// Export route
+	r.GET("/web/export/:session_id", handlers.ExportCDRs)
+
+	// API routes group for future expansion (if this turns into a full API project)
 	api := r.Group("/api/v1")
 	{
 		api.GET("/health", handlers.HealthCheck)
@@ -145,9 +151,7 @@ func main() {
 	r.Run(":" + cfg.AppPort)
 }
 
-// Keep your existing testCDREndpoints function unchanged
-// Clean version of testCDREndpoints function for main.go
-// Replace the existing testCDREndpoints function with this version
+// [Cleaned up] version of testCDREndpoints function for main.go
 
 func testCDREndpoints(cfg *config.Config) {
 	fmt.Println("Testing CDR Discovery Service...")
@@ -266,7 +270,7 @@ func testCDREndpoints(cfg *config.Config) {
 	fmt.Println("\nCDR Discovery Service test completed!")
 }
 
-// Keep your existing helper functions unchanged
+// helper functiions for min/max
 func min(a, b int) int {
 	if a < b {
 		return a

@@ -3,30 +3,148 @@
 <head>
     <title>{{.title}}</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .info { background: #e3f2fd; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
-        .button { background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-right: 10px; }
-        .button:hover { background: #5a67d8; }
-        .button.secondary { background: #48bb78; }
-        .button.secondary:hover { background: #38a169; }
-        h2 { color: #333; }
-        .session-id { font-family: monospace; background: #f0f0f0; padding: 2px 5px; border-radius: 3px; }
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; }
+        .info { background: #e3f2fd; padding: 15px; margin-bottom: 20px; border-left: 4px solid #2196f3; }
+        .session-id { font-family: monospace; background: #f0f0f0; padding: 2px 5px; }
+        
+        /* Buttons */
+        .button { padding: 8px 16px; text-decoration: none; display: inline-block; margin-right: 10px; border: none; cursor: pointer; }
+        .button.primary { background: #2196f3; color: white; }
+        .button.primary:hover { background: #1976d2; }
+        .button.secondary { background: #4caf50; color: white; }
+        .button.secondary:hover { background: #388e3c; }
+        
+        /* Results Table */
+        .results-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        .results-table th { background: #f5f5f5; padding: 10px; text-align: left; border-bottom: 2px solid #ddd; }
+        .results-table td { padding: 8px; border-bottom: 1px solid #eee; }
+        .results-table tr:hover { background: #f9f9f9; }
+        
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: #f5f5f5; padding: 15px; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #2196f3; }
+        .stat-label { color: #666; font-size: 14px; }
+        
+        /* Endpoint Details */
+        .endpoint-details { margin-top: 20px; }
+        .endpoint-card { background: #f9f9f9; padding: 15px; margin-bottom: 10px; border-left: 3px solid #4caf50; }
+        .endpoint-error { border-left-color: #f44336; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>CDR Search Results</h2>
+        
         <div class="info">
             <p><strong>Session ID:</strong> <span class="session-id">{{.sessionID}}</span></p>
             <p>{{.message}}</p>
-            <p><em>Note: Full results display coming soon. Database integration is ready!</em></p>
         </div>
-        <div>
-            <a href="/web/search" class="button">New Search</a>
-            <a href="#" class="button secondary" onclick="alert('Export functionality coming soon!')">Export CSV</a>
-            <a href="#" class="button secondary" onclick="alert('Export functionality coming soon!')">Export JSON</a>
+
+        {{if .uniqueCDRs}}
+        <!-- Statistics -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value">{{.uniqueCDRs}}</div>
+                <div class="stat-label">Unique CDRs</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{.totalCDRs}}</div>
+                <div class="stat-label">Total CDRs Found</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{.endpointCount}}</div>
+                <div class="stat-label">Endpoints Queried</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{{.queryTime}}s</div>
+                <div class="stat-label">Query Time</div>
+            </div>
         </div>
+
+        <!-- Export Options -->
+        <div style="margin-bottom: 20px;">
+            <form method="GET" action="/web/export/{{.sessionID}}" style="display: inline;">
+                <input type="hidden" name="format" value="csv">
+                <button type="submit" class="button secondary">Export CSV</button>
+            </form>
+            <form method="GET" action="/web/export/{{.sessionID}}" style="display: inline;">
+                <input type="hidden" name="format" value="json">
+                <button type="submit" class="button secondary">Export JSON</button>
+            </form>
+            <a href="/web/search" class="button primary">New Search</a>
+        </div>
+
+        <!-- Endpoint Summary -->
+        <div class="endpoint-details">
+            <h3>Endpoint Query Results</h3>
+            {{range .endpoints}}
+            <div class="endpoint-card {{if .Error}}endpoint-error{{end}}">
+                <strong>{{.EndpointName}}</strong> - {{.URL}}<br>
+                {{if .Success}}
+                    ✓ Found {{.RecordCount}} CDRs in {{.QueryTime}}
+                {{else}}
+                    ✗ Error: {{.Error}}
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+
+        <!-- CDR Preview Table -->
+        <h3>CDR Preview (First 10 Records)</h3>
+        <p style="color: #666;">Showing basic fields only. Export for complete data.</p>
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Call ID</th>
+                    <th>Domain</th>
+                    <th>Originating Number</th>
+                    <th>Terminating Number</th>
+                    <th>Start Time</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody id="cdrTableBody">
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 20px;">
+                        Loading CDR preview...
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <script>
+        // Load CDR preview via AJAX
+        fetch('/web/api/cdrs/{{.sessionID}}?limit=10')
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.getElementById('cdrTableBody');
+                tbody.innerHTML = '';
+                
+                if (data.cdrs && data.cdrs.length > 0) {
+                    data.cdrs.forEach(cdr => {
+                        const row = tbody.insertRow();
+                        row.insertCell(0).textContent = cdr.call_id || '-';
+                        row.insertCell(1).textContent = cdr.domain || '-';
+                        row.insertCell(2).textContent = cdr.orig_number || '-';
+                        row.insertCell(3).textContent = cdr.term_number || '-';
+                        row.insertCell(4).textContent = cdr.start_time || '-';
+                        row.insertCell(5).textContent = cdr.duration || '-';
+                    });
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No CDR data available</td></tr>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('cdrTableBody').innerHTML = 
+                    '<tr><td colspan="6" style="text-align: center; color: red;">Error loading CDR preview</td></tr>';
+            });
+        </script>
+        {{else}}
+        <p>No results found or session expired.</p>
+        <a href="/web/search" class="button primary">New Search</a>
+        {{end}}
     </div>
 </body>
 </html>

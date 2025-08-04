@@ -4,12 +4,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"log" // logging line
 	"net/http"
 	"o-dan-go/services"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -274,5 +276,158 @@ func HealthCheck(c *gin.Context) {
 		"service":   "O Dan Go CDR Discovery",
 		"version":   "1.0.0",
 		"timestamp": time.Now().UTC(),
+	})
+}
+
+// Add these functions to your handlers/web.go file
+
+// ExportCDRs handles export requests for CDR data
+func ExportCDRs(c *gin.Context) {
+	sessionID := c.Param("session_id")
+	format := c.DefaultQuery("format", "csv")
+
+	// Retrieve results from store
+	result, exists := services.GlobalResultsStore.Get(sessionID)
+	if !exists {
+		c.HTML(http.StatusNotFound, "error.html", gin.H{
+			"title": "Export Error",
+			"error": "Session not found or expired",
+		})
+		return
+	}
+
+	switch format {
+	case "csv":
+		exportCSV(c, result)
+	case "json":
+		exportJSON(c, result)
+	default:
+		c.HTML(http.StatusBadRequest, "error.html", gin.H{
+			"title": "Export Error",
+			"error": "Unsupported export format: " + format,
+		})
+	}
+}
+
+// exportCSV exports CDR data as CSV
+func exportCSV(c *gin.Context, result *services.CDRDiscoveryResult) {
+	// Set headers for CSV download
+	filename := fmt.Sprintf("cdrs_%s.csv", result.SessionID)
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	// Write CSV header - using common CDR fields
+	csvHeader := []string{
+		"call_id",
+		"domain",
+		"user",
+		"orig_number",
+		"term_number",
+		"start_time",
+		"end_time",
+		"duration",
+		"call_type",
+		"direction",
+		"disposition",
+		"session_id",
+	}
+
+	c.Writer.Write([]byte(strings.Join(csvHeader, ",") + "\n"))
+
+	// Write CDR data
+	for _, cdr := range result.AllCDRs {
+		row := []string{
+			escapeCSV(cdr.GetString("call-id")),
+			escapeCSV(cdr.GetDomain()),
+			escapeCSV(cdr.GetString("user")),
+			escapeCSV(cdr.GetString("orig-number")),
+			escapeCSV(cdr.GetString("term-number")),
+			escapeCSV(cdr.GetString("start-time")),
+			escapeCSV(cdr.GetString("end-time")),
+			escapeCSV(fmt.Sprintf("%d", cdr.GetInt("duration"))),
+			escapeCSV(cdr.GetString("call-type")),
+			escapeCSV(cdr.GetString("direction")),
+			escapeCSV(cdr.GetString("disposition")),
+			escapeCSV(result.SessionID),
+		}
+		c.Writer.Write([]byte(strings.Join(row, ",") + "\n"))
+	}
+}
+
+// exportJSON exports CDR data as JSON
+func exportJSON(c *gin.Context, result *services.CDRDiscoveryResult) {
+	// Set headers for JSON download
+	filename := fmt.Sprintf("cdrs_%s.json", result.SessionID)
+	c.Header("Content-Type", "application/json")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	// Create export structure
+	export := map[string]interface{}{
+		"session_id":      result.SessionID,
+		"search_criteria": result.SearchCriteria,
+		"query_time":      result.EndTime.Sub(result.StartTime).Seconds(),
+		"total_cdrs":      result.TotalCDRs,
+		"unique_cdrs":     result.UniqueCDRs,
+		"export_time":     time.Now().UTC(),
+		"cdrs":            result.AllCDRs,
+	}
+
+	// Pretty print JSON
+	encoder := json.NewEncoder(c.Writer)
+	encoder.SetIndent("", "  ")
+	encoder.Encode(export)
+}
+
+// escapeCSV escapes special characters in CSV fields
+func escapeCSV(field string) string {
+	// If field contains comma, quote, or newline, wrap in quotes
+	if strings.ContainsAny(field, ",\"\n\r") {
+		// Escape quotes by doubling them
+		field = strings.ReplaceAll(field, "\"", "\"\"")
+		return fmt.Sprintf("\"%s\"", field)
+	}
+	return field
+}
+
+// GetCDRsAPI returns CDR data as JSON for AJAX requests
+func GetCDRsAPI(c *gin.Context) {
+	sessionID := c.Param("session_id")
+	limitStr := c.DefaultQuery("limit", "10")
+	limit, _ := strconv.Atoi(limitStr)
+
+	// Retrieve results from store
+	result, exists := services.GlobalResultsStore.Get(sessionID)
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Session not found or expired",
+		})
+		return
+	}
+
+	// Prepare CDR data for preview
+	var previewCDRs []map[string]interface{}
+	count := 0
+	for _, cdr := range result.AllCDRs {
+		if count >= limit {
+			break
+		}
+
+		// Extract common fields for preview
+		previewCDRs = append(previewCDRs, map[string]interface{}{
+			"call_id":     cdr.GetString("call-id"),
+			"domain":      cdr.GetDomain(),
+			"orig_number": cdr.GetString("orig-number"),
+			"term_number": cdr.GetString("term-number"),
+			"start_time":  cdr.GetString("start-time"),
+			"duration":    cdr.GetInt("duration"),
+		})
+		count++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session_id": sessionID,
+		"total":      len(result.AllCDRs),
+		"limit":      limit,
+		"cdrs":       previewCDRs,
 	})
 }
