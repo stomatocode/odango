@@ -33,7 +33,7 @@ func LoadConfig() *Config {
 	config := &Config{
 		// NetSapiens Configuration
 		NetsapiensBaseURL:  getEnv("NETSAPIENS_BASE_URL", "https://ns-api.com"),
-		NetsapiensToken:    getEnv("NETSAPIENS_ACCESS_TOKEN", ""),
+		NetsapiensToken:    getEnv("NETSAPIENS_ACCESS_TOKEN", ""), // Can be empty now
 		NetsapiensClientID: getEnv("NETSAPIENS_CLIENT_ID", ""),
 		NetsapiensSecret:   getEnv("NETSAPIENS_CLIENT_SECRET", ""),
 
@@ -45,10 +45,10 @@ func LoadConfig() *Config {
 		DatabasePath: getEnv("DATABASE_PATH", "./data/odango.db"),
 	}
 
-	// Validate required fields
-	if config.NetsapiensToken == "" {
-		log.Fatal("NETSAPIENS_ACCESS_TOKEN is required but not set")
-	}
+	// Remove the validation since tokens come from users now
+	// if config.NetsapiensToken == "" {
+	//     log.Fatal("NETSAPIENS_ACCESS_TOKEN is required but not set")
+	// }
 
 	return config
 }

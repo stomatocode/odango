@@ -98,7 +98,7 @@ func main() {
 
 	// TEST command
 	if len(os.Args) > 1 && os.Args[1] == "test-cdr" {
-		testCDREndpoints(cfg) // Pass config to test function
+		testCDREndpoints(cfg)
 		return
 	}
 
@@ -107,7 +107,7 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Initialize CDR Discovery Service
+	// Initialize CDR Discovery Service with defaults (will be overridden per request)
 	cdrService := services.NewCDRDiscoveryService(
 		cfg.NetsapiensBaseURL,
 		cfg.NetsapiensToken,
