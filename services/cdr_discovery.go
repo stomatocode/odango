@@ -73,7 +73,7 @@ type CDREndpointConfig struct {
 	URLTemplate    string   `json:"url_template"`
 	RequiredParams []string `json:"required_params"`
 	OptionalParams []string `json:"optional_params"`
-	SupportsRaw    bool     `json:"supports_raw"` // NEW: Indicates if endpoint supports raw=yes
+	SupportsRaw    bool     `json:"supports_raw"` // Indicates if endpoint supports raw=yes
 	Description    string   `json:"description"`
 }
 

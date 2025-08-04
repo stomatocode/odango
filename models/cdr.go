@@ -37,7 +37,6 @@ func (f *FlexibleCDR) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON implements the json.Marshaler interface
 // This is called when converting FROM our struct to JSON
-// THIS IS THE KEY FIX - it tells Go what to output as JSON
 func (f *FlexibleCDR) MarshalJSON() ([]byte, error) {
 	// When someone asks for JSON, give them the actual CDR data
 	// not the struct fields
