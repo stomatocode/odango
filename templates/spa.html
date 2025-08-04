@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>O Dan Go - CDR Discovery</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>🍡 O Dan Go</h1>
+            <p class="subtitle">NetSapiens CDR Discovery Platform</p>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="nav">
+            <a href="#welcome" class="active">Welcome</a>
+            <a href="#search">Search CDRs</a>
+            <a href="#results">Recent Results</a>
+        </nav>
+
+        <!-- Welcome View -->
+        <div id="welcomeView" class="view active">
+            <h2>Welcome to O Dan Go</h2>
+            <p>Comprehensive Call Detail Record discovery across all NetSapiens API endpoints.</p>
+            
+            <div style="margin-top: 20px;">
+                <h3>Quick Start</h3>
+                <ul style="margin-left: 20px; line-height: 2;">
+                    <li>Search by Call ID for precise results</li>
+                    <li>Use domain + user for targeted searches</li>
+                    <li>Search by phone number to find all related calls</li>
+                    <li>Combine criteria for comprehensive discovery</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 20px;">
+                <button class="btn btn-primary" onclick="app.showView('search')">
+                    Start Searching
+                </button>
+            </div>
+        </div>
+
+        <!-- Search View -->
+        <div id="searchView" class="view">
+            <h2>CDR Search</h2>
+            
+            <form id="searchForm" action="/web/search" method="POST">
+                <!-- Domain Context -->
+                <div class="form-section">
+                    <h3>Domain Context</h3>
+                    <div class="form-group">
+                        <label for="domain">Domain</label>
+                        <input type="text" id="domain" name="domain" placeholder="example.com">
+                        <div class="form-hint">NetSapiens domain (required for user/site searches)</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="user">User</label>
+                        <input type="text" id="user" name="user" placeholder="john.doe">
+                        <div class="form-hint">Username (requires domain)</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="site">Site</label>
+                        <input type="text" id="site" name="site" placeholder="main-office">
+                        <div class="form-hint">Site name (requires domain)</div>
+                    </div>
+                </div>
+
+                <!-- Call Identifiers -->
+                <div class="form-section">
+                    <h3>Call Identifiers</h3>
+                    <div class="form-group">
+                        <label for="call_id">Call ID</label>
+                        <input type="text" id="call_id" name="call_id" placeholder="1234567890@example.com">
+                        <div class="form-hint">Unique call identifier (best for precise searches)</div>
+                    </div>
+                </div>
+
+                <!-- Phone Numbers -->
+                <div class="form-section">
+                    <h3>Phone Numbers</h3>
+                    <div class="form-group">
+                        <label for="originating_number">Originating Number</label>
+                        <input type="tel" id="originating_number" name="originating_number" placeholder="+1234567890">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="terminating_number">Terminating Number</label>
+                        <input type="tel" id="terminating_number" name="terminating_number" placeholder="+1234567890">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="any_phone_number">Any Phone Number</label>
+                        <input type="tel" id="any_phone_number" name="any_phone_number" placeholder="+1234567890">
+                        <div class="form-hint">Search for this number as originating OR terminating</div>
+                    </div>
+                </div>
+
+                <!-- Date Range -->
+                <div class="form-section">
+                    <h3>Date Range</h3>
+                    <div class="form-group">
+                        <label for="start_date">Start Date</label>
+                        <input type="date" id="start_date" name="start_date">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="end_date">End Date</label>
+                        <input type="date" id="end_date" name="end_date">
+                    </div>
+                </div>
+
+                <!-- Search Options -->
+                <div class="form-section">
+                    <h3>Search Options</h3>
+                    <div class="form-group">
+                        <label for="limit">Result Limit</label>
+                        <select id="limit" name="limit">
+                            <option value="100">100 CDRs</option>
+                            <option value="500">500 CDRs</option>
+                            <option value="1000">1000 CDRs</option>
+                            <option value="5000">5000 CDRs</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Submit -->
+                <div style="margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">Search CDRs</button>
+                    <button type="reset" class="btn">Clear Form</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Results View -->
+        <div id="resultsView" class="view">
+            <h2>Search Results</h2>
+            <div id="resultsContainer">
+                <p>No search results yet. <a href="#search">Start a new search</a></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>Searching CDRs...</p>
+            <p style="font-size: 12px; color: #666;">This may take a moment</p>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

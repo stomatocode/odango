@@ -17,7 +17,7 @@ import (
 
 // ShowSPA serves the single page application
 func ShowSPA(c *gin.Context) {
-	c.HTML(http.StatusOK, "index.html", gin.H{
+	c.HTML(http.StatusOK, "spa.html", gin.H{
 		"title": "O Dan Go - CDR Discovery",
 	})
 }

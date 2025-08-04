@@ -47,7 +47,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -124,13 +123,7 @@ func main() {
 	r.Static("/static", "./static")
 
 	// API Routes (existing functionality)
-	r.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Welcome to O Dan Go!",
-			"status":  "running",
-			"env":     cfg.AppEnv,
-		})
-	})
+	r.GET("/", handlers.ShowSPA)
 
 	// Web Interface Routes (new functionality)
 	r.GET("/web", handlers.ShowWelcomePage)
