@@ -395,14 +395,19 @@ func GetCDRsAPI(c *gin.Context) {
 	limitStr := c.DefaultQuery("limit", "10")
 	limit, _ := strconv.Atoi(limitStr)
 
+	log.Printf("[GetCDRsAPI] Fetching CDRs for session: %s, limit: %d", sessionID, limit)
+
 	// Retrieve results from store
 	result, exists := services.GlobalResultsStore.Get(sessionID)
 	if !exists {
+		log.Printf("[GetCDRsAPI] Session not found: %s", sessionID)
 		c.JSON(http.StatusNotFound, gin.H{
 			"error": "Session not found or expired",
 		})
 		return
 	}
+
+	log.Printf("[GetCDRsAPI] Found session with %d CDRs", len(result.AllCDRs))
 
 	// Prepare CDR data for preview
 	var previewCDRs []map[string]interface{}
@@ -414,15 +419,17 @@ func GetCDRsAPI(c *gin.Context) {
 
 		// Extract common fields for preview
 		previewCDRs = append(previewCDRs, map[string]interface{}{
-			"call_id":     cdr.GetString("call-id"),
-			"domain":      cdr.GetDomain(),
-			"orig_number": cdr.GetString("orig-number"),
-			"term_number": cdr.GetString("term-number"),
-			"start_time":  cdr.GetString("start-time"),
-			"duration":    cdr.GetInt("duration"),
+			"call_id":     cdr.GetID(),                          // Use GetID() method
+			"domain":      cdr.GetDomain(),                      // Use GetDomain() method
+			"orig_number": cdr.GetString("call-orig-caller-id"), // Correct field name
+			"term_number": cdr.GetString("call-term-caller-id"), // Correct field name
+			"start_time":  cdr.GetString("call-start-datetime"), // Correct field name
+			"duration":    cdr.GetInt("call-duration"),          // Correct field name
 		})
 		count++
 	}
+
+	log.Printf("[GetCDRsAPI] Returning %d CDRs", len(previewCDRs))
 
 	c.JSON(http.StatusOK, gin.H{
 		"session_id": sessionID,
