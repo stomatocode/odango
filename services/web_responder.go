@@ -11,18 +11,22 @@ import (
 	"strings"
 	"time"
 
+	"o-dan-go/handlers"
+
 	"github.com/gorilla/sessions"
 )
 
 // WebResponderService handles IVR functionality
 type WebResponderService struct {
-	store *sessions.CookieStore
+	store     *sessions.CookieStore
+	dashboard *handlers.WRDashboardHandler // for displaying call events
 }
 
 // NewWebResponderService creates a new Web Responder service
-func NewWebResponderService(sessionSecret string) *WebResponderService {
+func NewWebResponderService(sessionSecret string, dashboard *handlers.WRDashboardHandler) *WebResponderService {
 	return &WebResponderService{
-		store: sessions.NewCookieStore([]byte(sessionSecret)),
+		store:     sessions.NewCookieStore([]byte(sessionSecret)),
+		dashboard: dashboard, // call event display
 	}
 }
 
@@ -197,6 +201,15 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 
 		log.Printf("[WR] Location identified: %s, %s", location.City, location.State)
 
+		// Generate session ID for dashboard tracking
+		sessionID := fmt.Sprintf("wr_%s_%d", areaCode, time.Now().Unix())
+		session.Values["session_id"] = sessionID
+
+		// Log to dashboard
+		if wr.dashboard != nil {
+			wr.dashboard.LogCallStart(sessionID, callerNumber, areaCode, cityState)
+		}
+
 		// Store location in session
 		locationJSON, _ := json.Marshal(location)
 		session.Values["location_json"] = string(locationJSON)
@@ -240,6 +253,12 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 	// Handle menu selection
 	log.Printf("[WR] DTMF received: %s", digits)
 
+	// Log DTMF to dashboard
+	sessionID, _ := session.Values["session_id"].(string)
+	if wr.dashboard != nil && sessionID != "" {
+		wr.dashboard.LogDTMF(sessionID, digits)
+	}
+
 	locationJSON, ok := session.Values["location_json"].(string)
 	if !ok {
 		log.Printf("[WR] No location in session")
@@ -267,12 +286,20 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		localTime := wr.GetLocalTime(location.Timezone)
 		responseText = fmt.Sprintf("The current time in %s, %s is %s.",
 			location.City, location.State, localTime)
+		// Log response to dashboard
+		if wr.dashboard != nil && sessionID != "" {
+			wr.dashboard.LogResponse(sessionID, responseText)
+		}
 
 	case "2":
 		log.Printf("[WR] User selected: Temperature")
 		weather := wr.GetWeatherData(location.Lat, location.Lon)
 		responseText = fmt.Sprintf("The current temperature in %s, %s is %d degrees Fahrenheit.",
 			location.City, location.State, weather.Temperature)
+		// Log response to dashboard
+		if wr.dashboard != nil && sessionID != "" {
+			wr.dashboard.LogResponse(sessionID, responseText)
+		}
 
 	case "3":
 		log.Printf("[WR] User selected: Air Quality")
@@ -280,6 +307,10 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		aqiDescription := wr.GetAQIDescription(weather.AQI)
 		responseText = fmt.Sprintf("The current Air Quality Index in %s, %s is %d. This is considered %s",
 			location.City, location.State, weather.AQI, aqiDescription)
+		// Log response to dashboard
+		if wr.dashboard != nil && sessionID != "" {
+			wr.dashboard.LogResponse(sessionID, responseText)
+		}
 
 	default:
 		log.Printf("[WR] Invalid selection: %s", digits)
@@ -295,6 +326,11 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 					Text:     fmt.Sprintf("For the current local time in %s, press 1. For the current temperature, press 2. For the air quality index, press 3.", location.City),
 				},
 			},
+		}
+
+		// Log call ending to dashboard
+		if wr.dashboard != nil && sessionID != "" {
+			wr.dashboard.LogCallEnd(sessionID)
 		}
 
 		response := Response{

@@ -35,6 +35,9 @@ func main() {
 		cfg.NetsapiensToken,
 	)
 
+	// Initialize Dashboard Handler
+	wrDashboard := handlers.NewWRDashboardHandler()
+
 	// Initialize Web Responder Service
 	// TODO: Add SessionSecret to config
 	wrService := services.NewWebResponderService("temporary-secret-change-me")
@@ -89,10 +92,15 @@ func main() {
 		wr.GET("/weather", wrHandler.HandleWeatherIVR)
 		wr.POST("/weather", wrHandler.HandleWeatherIVR)
 
-		// Future endpoints can be added here
-		// wr.GET("/menu", wrHandler.HandleMainMenu)
-		// wr.GET("/cdr-lookup", wrHandler.HandleCDRLookup)
-	}
+		// Dashboard routes
+		wr.GET("/dashboard", wrDashboard.ShowDashboard)
+		wr.GET("/active-calls", wrDashboard.GetActiveCalls)
+		wr.GET("/events", wrDashboard.GetRecentEvents)
+		wr.GET("/ws", wrDashboard.HandleWebSocket)
+		wr.POST("/test", wrDashboard.TestCall)
+
+		// Future endpoints 
+
 
 	// API routes group
 	api := r.Group("/api/v1")
@@ -107,6 +115,7 @@ func main() {
 	fmt.Printf("\n📡 Starting O Dan Go server on port %s\n", cfg.AppPort)
 	fmt.Printf("🌐 Web Interface: http://localhost:%s/web\n", cfg.AppPort)
 	fmt.Printf("📞 Web Responder: http://localhost:%s/wr/weather\n", cfg.AppPort)
+    fmt.Printf("📊 WR Dashboard: http://localhost:%s/wr/dashboard\n", cfg.AppPort)
 	fmt.Printf("🔗 API Endpoint: http://localhost:%s/\n", cfg.AppPort)
 	fmt.Println("\nPress Ctrl+C to stop the server")
 
