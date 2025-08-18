@@ -159,14 +159,14 @@ func testCDREndpoints(cfg *config.Config) {
 	fmt.Printf("📊 Results Summary:\n")
 	fmt.Printf("   - Total CDRs found: %d\n", result.TotalCDRs)
 	fmt.Printf("   - Unique CDRs: %d\n", result.UniqueCDRs)
-	fmt.Printf("   - Duplicates removed: %d\n", result.Duplicates)
+	fmt.Printf("   - Duplicates removed: %d\n", result.TotalCDRs-result.UniqueCDRs) // Calculate duplicates
 	fmt.Printf("   - Session ID: %s\n", result.SessionID)
 
 	// Show endpoint breakdown
 	fmt.Printf("\n📡 Endpoint Results:\n")
-	for endpoint, endpointResult := range result.EndpointResults {
-		fmt.Printf("   %s:\n", endpoint)
-		fmt.Printf("      CDRs: %d\n", endpointResult.Count)
+	for _, endpointResult := range result.EndpointResults { // Changed from map to slice
+		fmt.Printf("   %s:\n", endpointResult.EndpointName)
+		fmt.Printf("      CDRs: %d\n", endpointResult.RecordCount) // Changed from Count to RecordCount
 		fmt.Printf("      Success: %v\n", endpointResult.Success)
 		if endpointResult.Error != "" {
 			fmt.Printf("      Error: %s\n", endpointResult.Error)
