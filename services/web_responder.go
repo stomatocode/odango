@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"net/http" 
 
 	"github.com/gorilla/sessions"
 )
@@ -336,4 +337,9 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 
 	log.Printf("[WR] Sending response: %s", responseText)
 	return wr.GenerateXMLResponse(response), nil
+
+	// GetSession retrieves or creates a session
+	func (wr *WebResponderService) GetSession(r *http.Request, name string) (*sessions.Session, error) {
+	return wr.store.Get(r, name)
+
 }

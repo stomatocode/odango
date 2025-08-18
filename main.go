@@ -1,96 +1,18 @@
-/*
-
-                                                       -*
-                                                     =@ *@
-                                            @@@@@   @  @
-                                         #@----::*@# @-
-                                        :@:-------:%@
-                                       +@=----------:@
-                                    @*   @%:--------:#@
-                                   @       .#::-----:@
-                                  :@        +@#:---:@+             .
-                               #@#+@@          %@%@%             @+ @
-                              @*--::#@=         @       #@@%.  @% %@
-                              @--::::-@@       .@    #@=:::::%@ +@
-                           @@@@*--::::--%@%:.*@=    @*::::::::-@@
-                         @#:---%@---::::--@@       #@:::::::::::+@
-                        @=:---:--@@-::::--@.    @*  #@+:-:-:::::-@
-                        @::------:+@#+-=%@    -@       =-:-:::---@
-                        @=:::::::::--%@       @         @@--:--=@
-                         @#:-::::::--@     @@#%@           ##%@-
-                        :@=@*::::::#@    @@-:--*@.          @
-                       @  @- @@%@@%      @-:::::-@@        @
-                     @= @#            @@#@#-::::::=@@+   *@
-                   @* %@            @#:--:##-::::::-:*@
-                 @% +@             @#:----:-@@--:::::%@
-               #@ :@               @--------:=@*=--+@%
-             -@  @                 @*:--::----:-@@
-            @. @=                   @*:-:------:@
-           @.@%                    @-#@+----::*@
-                                 @= @% .@@@@@%
-                               @# %@
-                             @@ +@
-                           %@ :@
-                         =@  @=
-                        @  @+
-                      @= @%
-                     ##%@
-
-
-   O Dan Go!
-   VoIP Management System
-   NetSapiens API Integration
-   MIT License
-*/
-
 package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
-	"sync"
+	"strings"
 	"time"
 
 	"o-dan-go/config"
-	"o-dan-go/handlers" // handlers for web interface
+	"o-dan-go/handlers"
 	"o-dan-go/services"
 
 	"github.com/gin-gonic/gin"
 )
-
-// ResultsStore provides temporary in-memory storage for CDR results
-type ResultsStore struct {
-	mu      sync.RWMutex
-	results map[string]*services.CDRDiscoveryResult
-}
-
-// Global results store instance
-var GlobalResultsStore = &ResultsStore{
-	results: make(map[string]*services.CDRDiscoveryResult),
-}
-
-// Store saves a CDR discovery result
-func (rs *ResultsStore) Store(sessionID string, result *services.CDRDiscoveryResult) {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	rs.results[sessionID] = result
-
-	// Clean up old results after 1 hour
-	go func() {
-		time.Sleep(1 * time.Hour)
-		rs.mu.Lock()
-		delete(rs.results, sessionID)
-		rs.mu.Unlock()
-	}()
-}
-
-// Get retrieves a CDR discovery result
-func (rs *ResultsStore) Get(sessionID string) (*services.CDRDiscoveryResult, bool) {
-	rs.mu.RLock()
-	defer rs.mu.RUnlock()
-	result, exists := rs.results[sessionID]
-	return result, exists
-}
 
 func main() {
 	// Load configuration first
@@ -107,116 +29,145 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Initialize CDR Discovery Service with defaults (will be overridden per request)
+	// Initialize CDR Discovery Service
 	cdrService := services.NewCDRDiscoveryService(
 		cfg.NetsapiensBaseURL,
 		cfg.NetsapiensToken,
 	)
 
-	// GIN ROUTER with default middleware (logger and recovery)
+	// Initialize Web Responder Service
+	// TODO: Add SessionSecret to config
+	wrService := services.NewWebResponderService("temporary-secret-change-me")
+	wrHandler := handlers.NewWebResponderHandler(wrService)
+
+	// Create a Gin router with default middleware
 	r := gin.Default()
 
 	// Load HTML templates for web interface
 	r.LoadHTMLGlob("templates/*")
 
-	// Serve static files (CSS, JS, images)
+	// Serve static files
 	r.Static("/static", "./static")
 
-	// API Routes - switch to SPA
-	r.GET("/", handlers.ShowSPA)
+	// Print ASCII Art Banner
+	fmt.Println(`
+    ___       ____                 ____       
+   / _ \     |  _ \  __ _ _ __    / ___| ___  
+  | | | |____| | | |/ _` + "`" + ` | '_ \  | |  _ / _ \ 
+  | |_| |____| |_| | (_| | | | | | |_| | (_) |
+   \___/     |____/ \__,_|_| |_|  \____|\___/ 
+                                              
+  `)
+	fmt.Printf("🍡 O Dan Go - NetSapiens CDR Discovery Platform\n")
+	fmt.Printf("Version 1.0.0 | Environment: %s\n", cfg.AppEnv)
+	fmt.Println("=" + strings.Repeat("=", 45))
 
-	// Web Interface Routes (new functionality)
+	// API Routes (existing functionality)
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Welcome to O Dan Go!",
+			"status":  "running",
+			"env":     cfg.AppEnv,
+			"features": gin.H{
+				"cdr_discovery": "active",
+				"web_responder": "active",
+			},
+		})
+	})
+
+	// Web Interface Routes (existing CDR functionality)
 	r.GET("/web", handlers.ShowWelcomePage)
 	r.GET("/web/search", handlers.ShowSearchForm)
 	r.POST("/web/search", handlers.ProcessSearchForm(cdrService))
 	r.GET("/web/results/:session_id", handlers.ShowResults)
+	r.GET("/spa", handlers.ShowSPA)
 
-	// API endpoint for CDR preview
-	r.GET("/web/api/cdrs/:session_id", handlers.GetCDRsAPI)
+	// Web Responder Routes (NEW)
+	wr := r.Group("/wr")
+	{
+		// Weather IVR endpoint
+		wr.GET("/weather", wrHandler.HandleWeatherIVR)
+		wr.POST("/weather", wrHandler.HandleWeatherIVR)
 
-	// Export route
-	r.GET("/web/export/:session_id", handlers.ExportCDRs)
+		// Future endpoints can be added here
+		// wr.GET("/menu", wrHandler.HandleMainMenu)
+		// wr.GET("/cdr-lookup", wrHandler.HandleCDRLookup)
+	}
 
-	// API routes group for future expansion (if this turns into a full API project)
+	// API routes group
 	api := r.Group("/api/v1")
 	{
 		api.GET("/health", handlers.HealthCheck)
-		// Future API endpoints can go here
+		// Future API endpoints
+		// api.GET("/cdrs", ...)
+		// api.GET("/wr/status", ...)
 	}
 
-	// Start server on configured port
-	fmt.Printf("Starting O Dan Go server on port %s in %s mode\n", cfg.AppPort, cfg.AppEnv)
+	// Start server
+	fmt.Printf("\n📡 Starting O Dan Go server on port %s\n", cfg.AppPort)
 	fmt.Printf("🌐 Web Interface: http://localhost:%s/web\n", cfg.AppPort)
+	fmt.Printf("📞 Web Responder: http://localhost:%s/wr/weather\n", cfg.AppPort)
 	fmt.Printf("🔗 API Endpoint: http://localhost:%s/\n", cfg.AppPort)
+	fmt.Println("\nPress Ctrl+C to stop the server")
+
 	r.Run(":" + cfg.AppPort)
 }
 
-// [Cleaned up] version of testCDREndpoints function for main.go
-
 func testCDREndpoints(cfg *config.Config) {
 	fmt.Println("Testing CDR Discovery Service...")
-	fmt.Printf("Base URL: %s\n", cfg.NetsapiensBaseURL)
-	fmt.Printf("Token: %s...%s\n",
-		cfg.NetsapiensToken[:min(8, len(cfg.NetsapiensToken))],
-		cfg.NetsapiensToken[max(0, len(cfg.NetsapiensToken)-4):])
+	fmt.Printf("🔗 Base URL: %s\n", cfg.NetsapiensBaseURL)
 
-	// Initialize service using configuration (correct 2-parameter constructor)
+	// Safe token display
+	token := cfg.NetsapiensToken
+	tokenLen := len(token)
+
+	if tokenLen == 0 {
+		fmt.Printf("🔑 Token: [EMPTY TOKEN]\n")
+	} else if tokenLen <= 8 {
+		fmt.Printf("🔑 Token: %s...\n", token[:min(4, tokenLen)])
+	} else {
+		start := min(8, tokenLen)
+		end := max(0, tokenLen-4)
+		fmt.Printf("🔑 Token: %s...%s\n", token[:start], token[end:])
+	}
+
+	fmt.Printf("🌍 Environment: %s\n\n", cfg.AppEnv)
+
+	// Initialize service
 	cdrService := services.NewCDRDiscoveryService(
 		cfg.NetsapiensBaseURL,
 		cfg.NetsapiensToken,
 	)
 
-	fmt.Println("SUCCESS: CDR Discovery Service initialized successfully")
+	fmt.Println("🔍 Testing CDR Discovery with comprehensive search...")
 
-	// Test endpoint configuration
-	endpoints := cdrService.GetSupportedEndpoints()
-	fmt.Printf("Found %d supported endpoints:\n", len(endpoints))
-
-	for _, endpoint := range endpoints {
-		fmt.Printf("   - %s: %s\n", endpoint.Name, endpoint.Description)
-		fmt.Printf("     URL Template: %s\n", endpoint.URLTemplate)
-		if len(endpoint.RequiredParams) > 0 {
-			fmt.Printf("     Required: %v\n", endpoint.RequiredParams)
-		}
-	}
-
-	// Test basic connectivity with minimal criteria
-	fmt.Println("\nTesting basic CDR query...")
-
+	// Test with minimal criteria (discovers all endpoints)
 	criteria := services.CDRSearchCriteria{
-		Limit: 5, // Just get a few records for testing
+		Limit: 5, // Small limit for testing
 	}
 
-	start := time.Now()
+	startTime := time.Now()
 	result, err := cdrService.GetComprehensiveCDRs(criteria)
-	duration := time.Since(start)
+	elapsed := time.Since(startTime)
 
 	if err != nil {
-		fmt.Printf("ERROR: CDR query failed: %v\n", err)
+		fmt.Printf("❌ Error during discovery: %v\n", err)
 		return
 	}
 
-	// Print comprehensive results
-	fmt.Printf("SUCCESS: Query completed in %v\n", duration)
-	fmt.Printf("Results Summary:\n")
-	fmt.Printf("   Session ID: %s\n", result.SessionID)
-	fmt.Printf("   Total CDRs found: %d\n", result.TotalCDRs)
-	fmt.Printf("   Unique CDRs: %d\n", result.UniqueCDRs)
-	fmt.Printf("   Endpoints queried: %d\n", len(result.EndpointResults))
+	fmt.Printf("\n✅ Discovery completed in %v\n", elapsed)
+	fmt.Printf("📊 Results Summary:\n")
+	fmt.Printf("   - Total CDRs found: %d\n", result.TotalCDRs)
+	fmt.Printf("   - Unique CDRs: %d\n", result.UniqueCDRs)
+	fmt.Printf("   - Duplicates removed: %d\n", result.Duplicates)
+	fmt.Printf("   - Session ID: %s\n", result.SessionID)
 
-	// Show detailed endpoint results
-	fmt.Println("\nEndpoint Results:")
-	for _, endpointResult := range result.EndpointResults {
-		status := "FAILED"
-		if endpointResult.Success {
-			status = "SUCCESS"
-		}
-		fmt.Printf("   %s: %s\n", status, endpointResult.EndpointName)
-		fmt.Printf("      URL: %s\n", endpointResult.URL)
-		fmt.Printf("      Records: %d\n", endpointResult.RecordCount)
-		fmt.Printf("      Response Time: %v\n", endpointResult.QueryTime)
-		fmt.Printf("      HTTP Status: %d\n", endpointResult.HTTPStatus)
-
+	// Show endpoint breakdown
+	fmt.Printf("\n📡 Endpoint Results:\n")
+	for endpoint, endpointResult := range result.EndpointResults {
+		fmt.Printf("   %s:\n", endpoint)
+		fmt.Printf("      CDRs: %d\n", endpointResult.Count)
+		fmt.Printf("      Success: %v\n", endpointResult.Success)
 		if endpointResult.Error != "" {
 			fmt.Printf("      Error: %s\n", endpointResult.Error)
 		}
@@ -225,7 +176,7 @@ func testCDREndpoints(cfg *config.Config) {
 
 	// Show any global errors
 	if len(result.Errors) > 0 {
-		fmt.Printf("Global Errors:\n")
+		fmt.Printf("⚠️  Global Errors:\n")
 		for _, err := range result.Errors {
 			fmt.Printf("   - %s\n", err)
 		}
@@ -233,7 +184,7 @@ func testCDREndpoints(cfg *config.Config) {
 
 	// Test with domain-specific criteria if we have CDRs
 	if result.UniqueCDRs > 0 {
-		fmt.Println("\nTesting domain-specific query...")
+		fmt.Println("\n🎯 Testing domain-specific query...")
 
 		// Get a domain from the first CDR for testing
 		firstCDR := result.AllCDRs[0]
@@ -247,30 +198,30 @@ func testCDREndpoints(cfg *config.Config) {
 
 			domainResult, err := cdrService.GetComprehensiveCDRs(domainCriteria)
 			if err != nil {
-				fmt.Printf("ERROR: Domain query failed: %v\n", err)
+				fmt.Printf("❌ Domain query failed: %v\n", err)
 			} else {
-				fmt.Printf("SUCCESS: Domain query for '%s' found %d CDRs\n", testDomain, domainResult.UniqueCDRs)
+				fmt.Printf("✅ Domain query for '%s' found %d CDRs\n", testDomain, domainResult.UniqueCDRs)
 			}
 		}
 	}
 
 	// Show sample CDR data if available
 	if len(result.AllCDRs) > 0 {
-		fmt.Println("\nSample CDR Data:")
+		fmt.Println("\n📋 Sample CDR Data:")
 		sampleCDR := result.AllCDRs[0]
-		fmt.Printf("   ID: %s\n", sampleCDR.GetID())
-		fmt.Printf("   Domain: %s\n", sampleCDR.GetDomain())
-		fmt.Printf("   Direction: %d\n", sampleCDR.GetCallDirection())
-		fmt.Printf("   Duration: %d seconds\n", sampleCDR.GetCallDuration())
-		fmt.Printf("   Origin User: %s\n", sampleCDR.GetOrigUser())
-		fmt.Printf("   Term User: %s\n", sampleCDR.GetTermUser())
-		fmt.Printf("   Field Count: %d\n", len(sampleCDR.GetFieldNames()))
+		fmt.Printf("   - ID: %s\n", sampleCDR.GetID())
+		fmt.Printf("   - Domain: %s\n", sampleCDR.GetDomain())
+		fmt.Printf("   - Direction: %d\n", sampleCDR.GetCallDirection())
+		fmt.Printf("   - Duration: %d seconds\n", sampleCDR.GetCallDuration())
+		fmt.Printf("   - Origin User: %s\n", sampleCDR.GetOrigUser())
+		fmt.Printf("   - Term User: %s\n", sampleCDR.GetTermUser())
+		fmt.Printf("   - Field Count: %d\n", len(sampleCDR.GetFieldNames()))
 	}
 
-	fmt.Println("\nCDR Discovery Service test completed!")
+	fmt.Println("\n🎉 CDR Discovery Service test completed!")
 }
 
-// helper functiions for min/max
+// Helper functions
 func min(a, b int) int {
 	if a < b {
 		return a
