@@ -11,22 +11,18 @@ import (
 	"strings"
 	"time"
 
-	"o-dan-go/handlers"
-
 	"github.com/gorilla/sessions"
 )
 
 // WebResponderService handles IVR functionality
 type WebResponderService struct {
-	store     *sessions.CookieStore
-	dashboard *handlers.WRDashboardHandler // for displaying call events
+	store *sessions.CookieStore
 }
 
 // NewWebResponderService creates a new Web Responder service
-func NewWebResponderService(sessionSecret string, dashboard *handlers.WRDashboardHandler) *WebResponderService {
+func NewWebResponderService(sessionSecret string) *WebResponderService {
 	return &WebResponderService{
-		store:     sessions.NewCookieStore([]byte(sessionSecret)),
-		dashboard: dashboard, // call event display
+		store: sessions.NewCookieStore([]byte(sessionSecret)),
 	}
 }
 
@@ -205,10 +201,7 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		sessionID := fmt.Sprintf("wr_%s_%d", areaCode, time.Now().Unix())
 		session.Values["session_id"] = sessionID
 
-		// Log to dashboard
-		if wr.dashboard != nil {
-			wr.dashboard.LogCallStart(sessionID, callerNumber, areaCode, cityState)
-		}
+		// Dashboard logging removed to fix circular import
 
 		// Store location in session
 		locationJSON, _ := json.Marshal(location)
@@ -253,11 +246,7 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 	// Handle menu selection
 	log.Printf("[WR] DTMF received: %s", digits)
 
-	// Log DTMF to dashboard
-	sessionID, _ := session.Values["session_id"].(string)
-	if wr.dashboard != nil && sessionID != "" {
-		wr.dashboard.LogDTMF(sessionID, digits)
-	}
+	// Dashboard logging removed to fix circular import
 
 	locationJSON, ok := session.Values["location_json"].(string)
 	if !ok {
@@ -286,20 +275,14 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		localTime := wr.GetLocalTime(location.Timezone)
 		responseText = fmt.Sprintf("The current time in %s, %s is %s.",
 			location.City, location.State, localTime)
-		// Log response to dashboard
-		if wr.dashboard != nil && sessionID != "" {
-			wr.dashboard.LogResponse(sessionID, responseText)
-		}
+		// Dashboard logging removed to fix circular import
 
 	case "2":
 		log.Printf("[WR] User selected: Temperature")
 		weather := wr.GetWeatherData(location.Lat, location.Lon)
 		responseText = fmt.Sprintf("The current temperature in %s, %s is %d degrees Fahrenheit.",
 			location.City, location.State, weather.Temperature)
-		// Log response to dashboard
-		if wr.dashboard != nil && sessionID != "" {
-			wr.dashboard.LogResponse(sessionID, responseText)
-		}
+		// Dashboard logging removed to fix circular import
 
 	case "3":
 		log.Printf("[WR] User selected: Air Quality")
@@ -307,10 +290,7 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		aqiDescription := wr.GetAQIDescription(weather.AQI)
 		responseText = fmt.Sprintf("The current Air Quality Index in %s, %s is %d. This is considered %s",
 			location.City, location.State, weather.AQI, aqiDescription)
-		// Log response to dashboard
-		if wr.dashboard != nil && sessionID != "" {
-			wr.dashboard.LogResponse(sessionID, responseText)
-		}
+		// Dashboard logging removed to fix circular import
 
 	default:
 		log.Printf("[WR] Invalid selection: %s", digits)
@@ -328,10 +308,7 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 			},
 		}
 
-		// Log call ending to dashboard
-		if wr.dashboard != nil && sessionID != "" {
-			wr.dashboard.LogCallEnd(sessionID)
-		}
+		// Dashboard logging removed to fix circular import
 
 		response := Response{
 			Actions: []interface{}{

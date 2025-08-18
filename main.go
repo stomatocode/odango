@@ -39,8 +39,7 @@ func main() {
 	wrDashboard := handlers.NewWRDashboardHandler()
 
 	// Initialize Web Responder Service
-	// TODO: Add SessionSecret to config
-	wrService := services.NewWebResponderService("temporary-secret-change-me")
+	wrService := services.NewWebResponderService(cfg.SessionSecret)
 	wrHandler := handlers.NewWebResponderHandler(wrService)
 
 	// Create a Gin router with default middleware
@@ -100,7 +99,7 @@ func main() {
 		wr.POST("/test", wrDashboard.TestCall)
 
 		// Future endpoints 
-
+	}
 
 	// API routes group
 	api := r.Group("/api/v1")

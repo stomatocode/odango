@@ -16,8 +16,9 @@ type Config struct {
 	NetsapiensSecret   string
 
 	// Application Configuration
-	AppEnv  string
-	AppPort string
+	AppEnv       string
+	AppPort      string
+	SessionSecret string
 
 	// Database Configuration
 	DatabasePath string
@@ -38,8 +39,9 @@ func LoadConfig() *Config {
 		NetsapiensSecret:   getEnv("NETSAPIENS_CLIENT_SECRET", ""),
 
 		// Application Configuration
-		AppEnv:  getEnv("APP_ENV", "development"),
-		AppPort: getEnv("APP_PORT", "8080"),
+		AppEnv:        getEnv("APP_ENV", "development"),
+		AppPort:       getEnv("APP_PORT", "8080"),
+		SessionSecret: getEnv("SESSION_SECRET", "default-secret-change-in-production"),
 
 		// Database Configuration
 		DatabasePath: getEnv("DATABASE_PATH", "./data/odango.db"),
