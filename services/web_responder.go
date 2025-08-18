@@ -71,15 +71,6 @@ type WeatherData struct {
 	AQI         int `json:"aqi"`
 }
 
-// Area code database - calls to helper function in services with complete area codes table
-location, exists := CompleteAreaCodes[areaCode]
-if !exists {
-    // Try to handle gracefully
-    locationString := "your area"
-} else {
-    locationString := GetLocationString(areaCode)
-}
-
 // ExtractAreaCode extracts area code from phone number
 func (wr *WebResponderService) ExtractAreaCode(phoneNumber string) string {
 	// Remove all non-digits
@@ -101,7 +92,7 @@ func (wr *WebResponderService) ExtractAreaCode(phoneNumber string) string {
 
 // GetLocationFromAreaCode looks up location by area code
 func (wr *WebResponderService) GetLocationFromAreaCode(areaCode string) (Location, bool) {
-	location, exists := areaCodes[areaCode]
+	location, exists := CompleteAreaCodes[areaCode]
 	return location, exists
 }
 

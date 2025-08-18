@@ -5,6 +5,20 @@ import (
 	"strings"
 )
 
+// CompleteAreaCodes - Basic area code database (can be expanded)
+var CompleteAreaCodes = map[string]Location{
+	"415": {City: "San Francisco", State: "CA", Lat: 37.7749, Lon: -122.4194, Timezone: "America/Los_Angeles"},
+	"212": {City: "New York", State: "NY", Lat: 40.7128, Lon: -74.0060, Timezone: "America/New_York"},
+	"312": {City: "Chicago", State: "IL", Lat: 41.8781, Lon: -87.6298, Timezone: "America/Chicago"},
+	"305": {City: "Miami", State: "FL", Lat: 25.7617, Lon: -80.1918, Timezone: "America/New_York"},
+	"206": {City: "Seattle", State: "WA", Lat: 47.6062, Lon: -122.3321, Timezone: "America/Los_Angeles"},
+	"617": {City: "Boston", State: "MA", Lat: 42.3601, Lon: -71.0589, Timezone: "America/New_York"},
+	"404": {City: "Atlanta", State: "GA", Lat: 33.7490, Lon: -84.3880, Timezone: "America/New_York"},
+	"512": {City: "Austin", State: "TX", Lat: 30.2672, Lon: -97.7431, Timezone: "America/Chicago"},
+	"602": {City: "Phoenix", State: "AZ", Lat: 33.4484, Lon: -112.0740, Timezone: "America/Phoenix"},
+	"702": {City: "Las Vegas", State: "NV", Lat: 36.1699, Lon: -115.1398, Timezone: "America/Los_Angeles"},
+}
+
 // GetAreaCodeStats returns statistics about the area code database
 func GetAreaCodeStats() map[string]int {
 	stats := make(map[string]int)
