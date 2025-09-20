@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"o-dan-go/events"
 	"regexp"
 	"strings"
 	"time"
@@ -71,15 +72,6 @@ type WeatherData struct {
 	AQI         int `json:"aqi"`
 }
 
-// Area code database - calls to helper function in services with complete area codes table
-location, exists := CompleteAreaCodes[areaCode]
-if !exists {
-    // Try to handle gracefully
-    locationString := "your area"
-} else {
-    locationString := GetLocationString(areaCode)
-}
-
 // ExtractAreaCode extracts area code from phone number
 func (wr *WebResponderService) ExtractAreaCode(phoneNumber string) string {
 	// Remove all non-digits
@@ -101,7 +93,7 @@ func (wr *WebResponderService) ExtractAreaCode(phoneNumber string) string {
 
 // GetLocationFromAreaCode looks up location by area code
 func (wr *WebResponderService) GetLocationFromAreaCode(areaCode string) (Location, bool) {
-	location, exists := areaCodes[areaCode]
+	location, exists := CompleteAreaCodes[areaCode]
 	return location, exists
 }
 
@@ -152,7 +144,7 @@ func (wr *WebResponderService) GenerateXMLResponse(response Response) string {
 	return xml.Header + string(output)
 }
 
-// ProcessWeatherIVR processes the main weather IVR logic
+// ProcessWeatherIVR processes the main weather IVR logic with event logging
 func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, callerNumber string, digits string) (string, error) {
 	// First call - no digits pressed
 	if digits == "" {
@@ -161,6 +153,19 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		areaCode := wr.ExtractAreaCode(callerNumber)
 		if areaCode == "" {
 			log.Printf("[WR] Could not extract area code from: %s", callerNumber)
+
+			// Send error event
+			events.SendEvent(events.CallEvent{
+				SessionID: "error",
+				CallID:    fmt.Sprintf("call_%d", time.Now().Unix()),
+				CallerNum: callerNumber,
+				AreaCode:  "Unknown",
+				Location:  "Unknown",
+				EventType: "error",
+				Details:   "Could not extract area code",
+				Timestamp: time.Now(),
+			})
+
 			response := Response{
 				Actions: []interface{}{
 					Say{
@@ -177,6 +182,19 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		location, exists := wr.GetLocationFromAreaCode(areaCode)
 		if !exists {
 			log.Printf("[WR] Area code not found: %s", areaCode)
+
+			// Send error event
+			events.SendEvent(events.CallEvent{
+				SessionID: "error",
+				CallID:    fmt.Sprintf("call_%d", time.Now().Unix()),
+				CallerNum: callerNumber,
+				AreaCode:  areaCode,
+				Location:  "Unknown",
+				EventType: "error",
+				Details:   fmt.Sprintf("Area code %s not in database", areaCode),
+				Timestamp: time.Now(),
+			})
+
 			response := Response{
 				Actions: []interface{}{
 					Say{
@@ -192,11 +210,25 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 
 		log.Printf("[WR] Location identified: %s, %s", location.City, location.State)
 
-		// Generate session ID for dashboard tracking
+		// Generate session ID and call ID
 		sessionID := fmt.Sprintf("wr_%s_%d", areaCode, time.Now().Unix())
-		session.Values["session_id"] = sessionID
+		callID := fmt.Sprintf("call_%d", time.Now().Unix())
 
-		// Dashboard logging removed to fix circular import
+		// Store in session
+		session.Values["session_id"] = sessionID
+		session.Values["call_id"] = callID
+
+		// Send call started event
+		events.SendEvent(events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: callerNumber,
+			AreaCode:  areaCode,
+			Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+			EventType: "call_started",
+			Details:   "New incoming call",
+			Timestamp: time.Now(),
+		})
 
 		// Store location in session
 		locationJSON, _ := json.Marshal(location)
@@ -241,11 +273,39 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 	// Handle menu selection
 	log.Printf("[WR] DTMF received: %s", digits)
 
-	// Dashboard logging removed to fix circular import
+	// Get session data
+	callID, _ := session.Values["call_id"].(string)
+	sessionID, _ := session.Values["session_id"].(string)
+	areaCode, _ := session.Values["area_code"].(string)
+
+	// Send DTMF event
+	events.SendEvent(events.CallEvent{
+		SessionID: sessionID,
+		CallID:    callID,
+		CallerNum: callerNumber,
+		AreaCode:  areaCode,
+		Location:  "", // Will be filled from session
+		EventType: "dtmf_received",
+		Details:   fmt.Sprintf("Pressed %s", digits),
+		Timestamp: time.Now(),
+	})
 
 	locationJSON, ok := session.Values["location_json"].(string)
 	if !ok {
 		log.Printf("[WR] No location in session")
+
+		// Send error event
+		events.SendEvent(events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: callerNumber,
+			AreaCode:  areaCode,
+			Location:  "Unknown",
+			EventType: "error",
+			Details:   "Session expired",
+			Timestamp: time.Now(),
+		})
+
 		response := Response{
 			Actions: []interface{}{
 				Say{
@@ -263,6 +323,7 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 	json.Unmarshal([]byte(locationJSON), &location)
 
 	var responseText string
+	var actionDetail string
 
 	switch digits {
 	case "1":
@@ -270,14 +331,14 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		localTime := wr.GetLocalTime(location.Timezone)
 		responseText = fmt.Sprintf("The current time in %s, %s is %s.",
 			location.City, location.State, localTime)
-		// Dashboard logging removed to fix circular import
+		actionDetail = fmt.Sprintf("Local time: %s", localTime)
 
 	case "2":
 		log.Printf("[WR] User selected: Temperature")
 		weather := wr.GetWeatherData(location.Lat, location.Lon)
 		responseText = fmt.Sprintf("The current temperature in %s, %s is %d degrees Fahrenheit.",
 			location.City, location.State, weather.Temperature)
-		// Dashboard logging removed to fix circular import
+		actionDetail = fmt.Sprintf("Temperature: %d°F", weather.Temperature)
 
 	case "3":
 		log.Printf("[WR] User selected: Air Quality")
@@ -285,10 +346,24 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		aqiDescription := wr.GetAQIDescription(weather.AQI)
 		responseText = fmt.Sprintf("The current Air Quality Index in %s, %s is %d. This is considered %s",
 			location.City, location.State, weather.AQI, aqiDescription)
-		// Dashboard logging removed to fix circular import
+		actionDetail = fmt.Sprintf("AQI: %d (%s)", weather.AQI, aqiDescription)
 
 	default:
 		log.Printf("[WR] Invalid selection: %s", digits)
+		actionDetail = "Invalid selection"
+
+		// Send invalid selection event
+		events.SendEvent(events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: callerNumber,
+			AreaCode:  areaCode,
+			Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+			EventType: "invalid_selection",
+			Details:   fmt.Sprintf("Invalid digit: %s", digits),
+			Timestamp: time.Now(),
+		})
+
 		// Re-present menu
 		gatherAction := Gather{
 			NumDigits: "1",
@@ -302,8 +377,6 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 				},
 			},
 		}
-
-		// Dashboard logging removed to fix circular import
 
 		response := Response{
 			Actions: []interface{}{
@@ -325,6 +398,30 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 		return wr.GenerateXMLResponse(response), nil
 	}
 
+	// Send response event for valid selections
+	events.SendEvent(events.CallEvent{
+		SessionID: sessionID,
+		CallID:    callID,
+		CallerNum: callerNumber,
+		AreaCode:  areaCode,
+		Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+		EventType: "response_sent",
+		Details:   actionDetail,
+		Timestamp: time.Now(),
+	})
+
+	// Send call ending event
+	events.SendEvent(events.CallEvent{
+		SessionID: sessionID,
+		CallID:    callID,
+		CallerNum: callerNumber,
+		AreaCode:  areaCode,
+		Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+		EventType: "call_ended",
+		Details:   "Call completed successfully",
+		Timestamp: time.Now(),
+	})
+
 	// Send response for valid selections
 	response := Response{
 		Actions: []interface{}{
@@ -345,11 +442,9 @@ func (wr *WebResponderService) ProcessWeatherIVR(session *sessions.Session, call
 
 	log.Printf("[WR] Sending response: %s", responseText)
 	return wr.GenerateXMLResponse(response), nil
-
 }
 
 // GetSession retrieves or creates a session
 func (wr *WebResponderService) GetSession(r *http.Request, name string) (*sessions.Session, error) {
 	return wr.store.Get(r, name)
-
 }

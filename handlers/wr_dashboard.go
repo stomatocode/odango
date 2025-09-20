@@ -1,8 +1,12 @@
 package handlers
 
 import (
+	"fmt"
+	"log"
+	"math/rand"
 	"net/http"
-	"sync"
+	"o-dan-go/events"
+	"o-dan-go/services"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -11,346 +15,287 @@ import (
 
 // WRDashboardHandler handles the Web Responder dashboard
 type WRDashboardHandler struct {
-	// Store active calls and events
-	activeCalls map[string]*CallSession
-	events      []CallEvent
-	mu          sync.RWMutex
-
-	// WebSocket upgrader
-	upgrader websocket.Upgrader
-
-	// Connected clients
 	clients   map[*websocket.Conn]bool
-	broadcast chan CallEvent
-}
-
-// CallSession represents an active IVR call
-type CallSession struct {
-	SessionID    string      `json:"session_id"`
-	CallerNumber string      `json:"caller_number"`
-	AreaCode     string      `json:"area_code"`
-	Location     string      `json:"location"`
-	StartTime    time.Time   `json:"start_time"`
-	LastAction   string      `json:"last_action"`
-	State        string      `json:"state"` // "active", "menu", "ended"
-	Events       []CallEvent `json:"events"`
-}
-
-// CallEvent represents an event in the call flow
-type CallEvent struct {
-	Timestamp    time.Time `json:"timestamp"`
-	SessionID    string    `json:"session_id"`
-	EventType    string    `json:"event_type"` // "call_start", "dtmf", "response", "hangup"
-	Description  string    `json:"description"`
-	Data         string    `json:"data"`
-	CallerNumber string    `json:"caller_number"`
+	broadcast chan events.CallEvent
+	upgrader  websocket.Upgrader
 }
 
 // NewWRDashboardHandler creates a new dashboard handler
 func NewWRDashboardHandler() *WRDashboardHandler {
 	handler := &WRDashboardHandler{
-		activeCalls: make(map[string]*CallSession),
-		events:      make([]CallEvent, 0, 1000), // Keep last 1000 events
-		clients:     make(map[*websocket.Conn]bool),
-		broadcast:   make(chan CallEvent, 100),
+		clients:   make(map[*websocket.Conn]bool),
+		broadcast: make(chan events.CallEvent),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for development
+				// Allow all origins in development
+				// TODO: Restrict in production
+				return true
 			},
 		},
 	}
 
-	// Start WebSocket broadcast handler
-	go handler.handleBroadcast()
+	// Start broadcasting events
+	go handler.broadcastEvents()
 
 	return handler
 }
 
-// ShowDashboard displays the Web Responder dashboard
-func (wrd *WRDashboardHandler) ShowDashboard(c *gin.Context) {
+// ShowDashboard displays the dashboard HTML
+func (h *WRDashboardHandler) ShowDashboard(c *gin.Context) {
 	c.HTML(http.StatusOK, "wr_dashboard.html", gin.H{
-		"title": "Web Responder Live Dashboard",
+		"title": "Web Responder Dashboard",
 	})
 }
 
 // GetActiveCalls returns current active calls as JSON
-func (wrd *WRDashboardHandler) GetActiveCalls(c *gin.Context) {
-	wrd.mu.RLock()
-	defer wrd.mu.RUnlock()
-
-	calls := make([]*CallSession, 0, len(wrd.activeCalls))
-	for _, call := range wrd.activeCalls {
-		calls = append(calls, call)
-	}
-
+func (h *WRDashboardHandler) GetActiveCalls(c *gin.Context) {
+	calls := events.Manager.GetActiveCalls()
 	c.JSON(http.StatusOK, gin.H{
-		"active_calls": calls,
-		"total_active": len(calls),
-		"timestamp":    time.Now(),
+		"calls": calls,
+		"count": len(calls),
 	})
 }
 
-// GetRecentEvents returns recent call events
-func (wrd *WRDashboardHandler) GetRecentEvents(c *gin.Context) {
-	wrd.mu.RLock()
-	defer wrd.mu.RUnlock()
-
-	// Return last 50 events
-	start := 0
-	if len(wrd.events) > 50 {
-		start = len(wrd.events) - 50
+// GetRecentEvents returns recent events (mock data for now)
+func (h *WRDashboardHandler) GetRecentEvents(c *gin.Context) {
+	// TODO: Implement actual event history storage
+	events := []gin.H{
+		{
+			"timestamp": time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+			"type":      "call_started",
+			"details":   "Call from 415-555-1234",
+		},
+		{
+			"timestamp": time.Now().Add(-3 * time.Minute).Format(time.RFC3339),
+			"type":      "dtmf_received",
+			"details":   "Pressed 2 for temperature",
+		},
+		{
+			"timestamp": time.Now().Add(-2 * time.Minute).Format(time.RFC3339),
+			"type":      "response_sent",
+			"details":   "Temperature: 72°F",
+		},
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"events": wrd.events[start:],
-		"total":  len(wrd.events),
+		"events": events,
 	})
 }
 
-// HandleWebSocket handles WebSocket connections for real-time updates
-func (wrd *WRDashboardHandler) HandleWebSocket(c *gin.Context) {
-	conn, err := wrd.upgrader.Upgrade(c.Writer, c.Request, nil)
+// HandleWebSocket manages WebSocket connections for real-time updates
+func (h *WRDashboardHandler) HandleWebSocket(c *gin.Context) {
+	conn, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
 
-	// Register client
-	wrd.mu.Lock()
-	wrd.clients[conn] = true
-	wrd.mu.Unlock()
+	// Register new client
+	h.clients[conn] = true
+	log.Printf("WebSocket client connected. Total clients: %d", len(h.clients))
+
+	// Subscribe to events
+	eventListener := events.Manager.Subscribe()
+	defer events.Manager.Unsubscribe(eventListener)
 
 	// Send initial state
-	wrd.sendInitialState(conn)
-
-	// Keep connection alive and handle messages
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			wrd.mu.Lock()
-			delete(wrd.clients, conn)
-			wrd.mu.Unlock()
-			break
-		}
-	}
-}
-
-// LogCallStart logs a new call starting
-func (wrd *WRDashboardHandler) LogCallStart(sessionID, callerNumber, areaCode, location string) {
-	wrd.mu.Lock()
-	defer wrd.mu.Unlock()
-
-	session := &CallSession{
-		SessionID:    sessionID,
-		CallerNumber: callerNumber,
-		AreaCode:     areaCode,
-		Location:     location,
-		StartTime:    time.Now(),
-		State:        "active",
-		LastAction:   "Call initiated",
-		Events:       []CallEvent{},
-	}
-
-	wrd.activeCalls[sessionID] = session
-
-	event := CallEvent{
-		Timestamp:    time.Now(),
-		SessionID:    sessionID,
-		EventType:    "call_start",
-		Description:  "New call from " + areaCode + " (" + location + ")",
-		CallerNumber: callerNumber,
-	}
-
-	wrd.addEvent(event)
-	wrd.broadcast <- event
-}
-
-// LogDTMF logs DTMF input
-func (wrd *WRDashboardHandler) LogDTMF(sessionID, digit string) {
-	wrd.mu.Lock()
-	defer wrd.mu.Unlock()
-
-	if session, exists := wrd.activeCalls[sessionID]; exists {
-		session.LastAction = "DTMF: " + digit
-		session.State = "menu"
-
-		description := ""
-		switch digit {
-		case "1":
-			description = "User selected: Local Time"
-		case "2":
-			description = "User selected: Temperature"
-		case "3":
-			description = "User selected: Air Quality"
-		default:
-			description = "User pressed: " + digit
-		}
-
-		event := CallEvent{
-			Timestamp:    time.Now(),
-			SessionID:    sessionID,
-			EventType:    "dtmf",
-			Description:  description,
-			Data:         digit,
-			CallerNumber: session.CallerNumber,
-		}
-
-		session.Events = append(session.Events, event)
-		wrd.addEvent(event)
-		wrd.broadcast <- event
-	}
-}
-
-// LogResponse logs a response sent to caller
-func (wrd *WRDashboardHandler) LogResponse(sessionID, response string) {
-	wrd.mu.Lock()
-	defer wrd.mu.Unlock()
-
-	if session, exists := wrd.activeCalls[sessionID]; exists {
-		session.LastAction = "Response sent"
-
-		event := CallEvent{
-			Timestamp:    time.Now(),
-			SessionID:    sessionID,
-			EventType:    "response",
-			Description:  "Response: " + response,
-			CallerNumber: session.CallerNumber,
-		}
-
-		session.Events = append(session.Events, event)
-		wrd.addEvent(event)
-		wrd.broadcast <- event
-	}
-}
-
-// LogCallEnd logs call ending
-func (wrd *WRDashboardHandler) LogCallEnd(sessionID string) {
-	wrd.mu.Lock()
-	defer wrd.mu.Unlock()
-
-	if session, exists := wrd.activeCalls[sessionID]; exists {
-		session.State = "ended"
-
-		event := CallEvent{
-			Timestamp:    time.Now(),
-			SessionID:    sessionID,
-			EventType:    "hangup",
-			Description:  "Call ended",
-			CallerNumber: session.CallerNumber,
-		}
-
-		wrd.addEvent(event)
-		wrd.broadcast <- event
-
-		// Remove from active calls after a delay
-		go func() {
-			time.Sleep(5 * time.Second)
-			wrd.mu.Lock()
-			delete(wrd.activeCalls, sessionID)
-			wrd.mu.Unlock()
-		}()
-	}
-}
-
-// Helper methods
-
-func (wrd *WRDashboardHandler) addEvent(event CallEvent) {
-	wrd.events = append(wrd.events, event)
-
-	// Keep only last 1000 events
-	if len(wrd.events) > 1000 {
-		wrd.events = wrd.events[1:]
-	}
-}
-
-func (wrd *WRDashboardHandler) sendInitialState(conn *websocket.Conn) {
-	wrd.mu.RLock()
-	defer wrd.mu.RUnlock()
-
-	// Send current active calls
-	state := gin.H{
-		"type":          "initial",
-		"active_calls":  wrd.activeCalls,
-		"recent_events": wrd.events,
-	}
-
-	conn.WriteJSON(state)
-}
-
-func (wrd *WRDashboardHandler) handleBroadcast() {
-	for {
-		event := <-wrd.broadcast
-
-		wrd.mu.RLock()
-		clients := make([]*websocket.Conn, 0, len(wrd.clients))
-		for client := range wrd.clients {
-			clients = append(clients, client)
-		}
-		wrd.mu.RUnlock()
-
-		message := gin.H{
-			"type":  "event",
-			"event": event,
-		}
-
-		for _, client := range clients {
-			err := client.WriteJSON(message)
-			if err != nil {
-				client.Close()
-				wrd.mu.Lock()
-				delete(wrd.clients, client)
-				wrd.mu.Unlock()
-			}
-		}
-	}
-}
-
-// TestCall simulates a call for testing
-func (wrd *WRDashboardHandler) TestCall(c *gin.Context) {
-	var req struct {
-		CallerNumber string `json:"caller_number"`
-		Digit        string `json:"digit"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	activeCalls := events.Manager.GetActiveCalls()
+	err = conn.WriteJSON(gin.H{
+		"type":  "initial",
+		"calls": activeCalls,
+	})
+	if err != nil {
+		log.Printf("Error sending initial state: %v", err)
+		delete(h.clients, conn)
 		return
 	}
 
-	// Simulate call flow
-	sessionID := "test_" + time.Now().Format("20060102150405")
+	// Create channels for coordinating goroutines
+	done := make(chan struct{})
 
-	// Start call
-	wrd.LogCallStart(sessionID, req.CallerNumber, "415", "San Francisco, CA")
-
-	// Simulate menu response after 2 seconds
+	// Handle incoming messages from client (ping/pong)
 	go func() {
-		time.Sleep(2 * time.Second)
-		wrd.LogResponse(sessionID, "Welcome! Press 1 for time, 2 for temperature...")
-
-		if req.Digit != "" {
-			time.Sleep(2 * time.Second)
-			wrd.LogDTMF(sessionID, req.Digit)
-
-			time.Sleep(1 * time.Second)
-			response := ""
-			switch req.Digit {
-			case "1":
-				response = "The current time is 2:30 PM"
-			case "2":
-				response = "The temperature is 68°F"
-			case "3":
-				response = "Air quality index is 45 (Good)"
+		defer close(done)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("WebSocket read error: %v", err)
+				return
 			}
-			wrd.LogResponse(sessionID, response)
-
-			time.Sleep(2 * time.Second)
-			wrd.LogCallEnd(sessionID)
 		}
 	}()
 
+	// Send events to this client
+	for {
+		select {
+		case event := <-eventListener:
+			// Send event to client
+			err := conn.WriteJSON(gin.H{
+				"type":  "event",
+				"event": event,
+			})
+			if err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				delete(h.clients, conn)
+				return
+			}
+
+			// Also send updated active calls
+			if event.EventType == "call_started" || event.EventType == "call_ended" {
+				activeCalls := events.Manager.GetActiveCalls()
+				err = conn.WriteJSON(gin.H{
+					"type":  "update",
+					"calls": activeCalls,
+				})
+				if err != nil {
+					log.Printf("WebSocket write error: %v", err)
+					delete(h.clients, conn)
+					return
+				}
+			}
+
+		case <-done:
+			// Client disconnected
+			delete(h.clients, conn)
+			log.Printf("WebSocket client disconnected. Total clients: %d", len(h.clients))
+			return
+		}
+	}
+}
+
+// broadcastEvents sends events to all connected clients
+func (h *WRDashboardHandler) broadcastEvents() {
+	for event := range h.broadcast {
+		for client := range h.clients {
+			err := client.WriteJSON(gin.H{
+				"type":  "event",
+				"event": event,
+			})
+			if err != nil {
+				log.Printf("Broadcast error: %v", err)
+				client.Close()
+				delete(h.clients, client)
+			}
+		}
+	}
+}
+
+// TestCall simulates an incoming call for testing
+func (h *WRDashboardHandler) TestCall(c *gin.Context) {
+	// Test phone numbers from different cities
+	testNumbers := []string{
+		"4155551234", // San Francisco
+		"2125551234", // New York
+		"3125551234", // Chicago
+		"5125551234", // Austin
+		"7025551234", // Las Vegas
+		"3055551234", // Miami
+		"2065551234", // Seattle
+		"6175551234", // Boston
+	}
+
+	// Pick a random number
+	randomNum := testNumbers[rand.Intn(len(testNumbers))]
+	areaCode := randomNum[:3]
+
+	// Look up location
+	location, exists := services.CompleteAreaCodes[areaCode]
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid test number",
+		})
+		return
+	}
+
+	// Generate IDs
+	sessionID := fmt.Sprintf("test_%s_%d", areaCode, time.Now().Unix())
+	callID := fmt.Sprintf("call_%d", time.Now().Unix())
+
+	// Send call started event
+	startEvent := events.CallEvent{
+		SessionID: sessionID,
+		CallID:    callID,
+		CallerNum: randomNum,
+		AreaCode:  areaCode,
+		Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+		EventType: "call_started",
+		Details:   "Test call initiated",
+		Timestamp: time.Now(),
+	}
+	events.SendEvent(startEvent)
+
+	// Simulate DTMF after 2 seconds
+	go func() {
+		time.Sleep(2 * time.Second)
+
+		// Random button press
+		digits := []string{"1", "2", "3"}
+		digit := digits[rand.Intn(len(digits))]
+
+		dtmfEvent := events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: randomNum,
+			AreaCode:  areaCode,
+			Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+			EventType: "dtmf_received",
+			Details:   fmt.Sprintf("Pressed %s", digit),
+			Timestamp: time.Now(),
+		}
+		events.SendEvent(dtmfEvent)
+
+		// Simulate response after 1 second
+		time.Sleep(1 * time.Second)
+
+		var responseDetail string
+		switch digit {
+		case "1":
+			responseDetail = "Local time: 3:45 PM"
+		case "2":
+			responseDetail = fmt.Sprintf("Temperature: %d°F", rand.Intn(30)+50)
+		case "3":
+			responseDetail = fmt.Sprintf("AQI: %d (Good)", rand.Intn(50)+20)
+		}
+
+		responseEvent := events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: randomNum,
+			AreaCode:  areaCode,
+			Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+			EventType: "response_sent",
+			Details:   responseDetail,
+			Timestamp: time.Now(),
+		}
+		events.SendEvent(responseEvent)
+
+		// End call after 2 seconds
+		time.Sleep(2 * time.Second)
+
+		endEvent := events.CallEvent{
+			SessionID: sessionID,
+			CallID:    callID,
+			CallerNum: randomNum,
+			AreaCode:  areaCode,
+			Location:  fmt.Sprintf("%s, %s", location.City, location.State),
+			EventType: "call_ended",
+			Details:   "Test call completed",
+			Timestamp: time.Now(),
+		}
+		events.SendEvent(endEvent)
+	}()
+
 	c.JSON(http.StatusOK, gin.H{
-		"session_id": sessionID,
-		"status":     "test_initiated",
+		"status":   "success",
+		"message":  "Test call initiated",
+		"call_id":  callID,
+		"caller":   randomNum,
+		"location": fmt.Sprintf("%s, %s", location.City, location.State),
 	})
+}
+
+// SimulateCall is an alias for TestCall for compatibility
+func (h *WRDashboardHandler) SimulateCall(c *gin.Context) {
+	h.TestCall(c)
 }

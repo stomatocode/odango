@@ -13,6 +13,22 @@ func GetAreaCodeStats() map[string]int {
 	canadaCount := 0
 	territoryCount := 0
 
+	for _, location := range CompleteAreaCodes {
+		switch {
+		case location.State == "PR" || location.State == "VI" ||
+			location.State == "MP" || location.State == "GU" || location.State == "AS":
+			territoryCount++
+		case location.State == "ON" || location.State == "BC" || location.State == "AB" ||
+			location.State == "MB" || location.State == "SK" || location.State == "QC" ||
+			location.State == "NB" || location.State == "NS" || location.State == "NL" ||
+			location.State == "NT" || location.State == "PE" || location.State == "YT" ||
+			location.State == "NU":
+			canadaCount++
+		default:
+			usCount++
+		}
+	}
+
 	stats["total"] = len(CompleteAreaCodes)
 	stats["us"] = usCount
 	stats["canada"] = canadaCount

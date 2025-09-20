@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"o-dan-go/config"
+	"o-dan-go/events"
 	"o-dan-go/handlers"
 	"o-dan-go/services"
 
@@ -17,6 +18,9 @@ import (
 func main() {
 	// Load configuration first
 	cfg := config.LoadConfig()
+
+	// Start the event manager for dashboard
+	events.Manager.Start()
 
 	// TEST command
 	if len(os.Args) > 1 && os.Args[1] == "test-cdr" {
@@ -97,8 +101,9 @@ func main() {
 		wr.GET("/events", wrDashboard.GetRecentEvents)
 		wr.GET("/ws", wrDashboard.HandleWebSocket)
 		wr.POST("/test", wrDashboard.TestCall)
+		wr.POST("/simulate", wrDashboard.SimulateCall) // testing/simulation
 
-		// Future endpoints 
+		// Future endpoints
 	}
 
 	// API routes group
@@ -114,7 +119,7 @@ func main() {
 	fmt.Printf("\n📡 Starting O Dan Go server on port %s\n", cfg.AppPort)
 	fmt.Printf("🌐 Web Interface: http://localhost:%s/web\n", cfg.AppPort)
 	fmt.Printf("📞 Web Responder: http://localhost:%s/wr/weather\n", cfg.AppPort)
-    fmt.Printf("📊 WR Dashboard: http://localhost:%s/wr/dashboard\n", cfg.AppPort)
+	fmt.Printf("📊 WR Dashboard: http://localhost:%s/wr/dashboard\n", cfg.AppPort)
 	fmt.Printf("🔗 API Endpoint: http://localhost:%s/\n", cfg.AppPort)
 	fmt.Println("\nPress Ctrl+C to stop the server")
 
